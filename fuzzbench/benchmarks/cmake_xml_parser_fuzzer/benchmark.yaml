@@ -1,0 +1,4 @@
+commit: dea6b14379a94105d0e69170080e99290c114cfb
+commit_date: 2025-11-15T00:07:41-05:00
+fuzz_target: xml_parser_fuzzer
+project: cmake

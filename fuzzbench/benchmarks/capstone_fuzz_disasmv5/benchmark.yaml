@@ -1,0 +1,4 @@
+commit: 24a2248c1bb88ad7a4cbad14bab2e853fef7c791
+commit_date: 2025-11-10 12:08:15+00:00
+fuzz_target: fuzz_disasmv5
+project: capstone

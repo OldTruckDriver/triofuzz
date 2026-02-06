@@ -1,0 +1,10 @@
+tools/
+**/.DS_Store
+.git/
+
+# Local build artifacts / fetched source trees (rebuilt inside the container)
+targets/*/repo/
+targets/*/work/
+targets/*/out/
+fuzzers/*/build/
+fuzzers/triofuzz/TrioFuzz/build/

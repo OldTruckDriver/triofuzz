@@ -1,0 +1,7 @@
+SELECT * FROM test1;
+SELECT * FROM test1, test2;
+SELECT * FROM test1 NATURAL JOIN test2;
+SELECT * FROM test1 LEFT JOIN test2 ON test1.id = test2.id;
+SELECT * FROM test1 WHERE x > 0;
+SELECT COUNT(*) FROM test1;
+SELECT DISTINCT x FROM test1;
