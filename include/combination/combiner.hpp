@@ -1,0 +1,434 @@
+#pragma once
+
+#include "../core/algorithm.hpp"
+#include "../core/context.hpp"
+#include <memory>
+#include <vector>
+#include <functional>
+#include <type_traits>
+// #include <future>  // 暂时注释掉以避免编译问题
+#include <thread>
+#include <atomic>
+#include <queue>
+#include <numeric>
+#include <chrono>
+#include <random>
+
+namespace triofuzz {
+
+// 组合模式
+enum class CompositionMode {
+    Sequential,    // 顺序执行：A -> B -> C
+    Parallel,      // 并行执行：A || B || C
+    Conditional,   // 条件执行：if (A) then B else C
+    Nested,        // 嵌套执行：A(B(C))
+    Weighted,      // 加权组合：w1*A + w2*B + w3*C
+    Pipeline,      // 流水线：A | B | C
+    Adaptive       // 自适应：根据运行时信息动态选择
+};
+
+// 组合策略接口
+class CombinationStrategy {
+public:
+    virtual ~CombinationStrategy() = default;
+    
+    // 决定如何组合算法
+    virtual CompositionMode selectMode(
+        const std::vector<AlgorithmInfo>& algorithms,
+        const SharedContext& context
+    ) = 0;
+    
+    // 计算权重（用于加权组合）
+    virtual std::vector<double> computeWeights(
+        const std::vector<AlgorithmInfo>& algorithms,
+        const PerformanceMetrics& metrics
+    ) = 0;
+};
+
+// 组合算法基类
+template<typename Input, typename Output, typename Context = SharedContext>
+class CompositeAlgorithm : public Algorithm<Input, Output, Context> {
+protected:
+    std::vector<std::shared_ptr<Algorithm<Input, Output, Context>>> algorithms_;
+    CompositionMode mode_;
+    std::vector<double> weights_;
+    
+public:
+    CompositeAlgorithm(CompositionMode mode = CompositionMode::Sequential)
+        : mode_(mode) {}
+    
+    // 添加算法
+    void addAlgorithm(std::shared_ptr<Algorithm<Input, Output, Context>> algo) {
+        algorithms_.push_back(algo);
+        weights_.push_back(1.0);
+    }
+    
+    // 设置权重
+    void setWeights(const std::vector<double>& weights) {
+        if (weights.size() == algorithms_.size()) {
+            weights_ = weights;
+        }
+    }
+    
+    // 获取子算法
+    const std::vector<std::shared_ptr<Algorithm<Input, Output, Context>>>& getAlgorithms() const {
+        return algorithms_;
+    }
+    
+    AlgorithmInfo getInfo() const override {
+        AlgorithmInfo info;
+        info.name = "Composite[" + std::to_string(algorithms_.size()) + "]";
+        info.version = "1.0";
+        info.type = AlgorithmType::Mutation; // 默认类型，可根据子算法调整
+        
+        // 合并所有子算法的信息
+        for (const auto& algo : algorithms_) {
+            auto sub_info = algo->getInfo();
+            info.provided_info.insert(info.provided_info.end(),
+                                    sub_info.provided_info.begin(),
+                                    sub_info.provided_info.end());
+            info.required_info.insert(info.required_info.end(),
+                                    sub_info.required_info.begin(),
+                                    sub_info.required_info.end());
+        }
+        
+        return info;
+    }
+    
+    void saveState(StateWriter& writer) const override {
+        writer.writeInt("algorithm_count", algorithms_.size());
+        writer.writeInt("composition_mode", static_cast<int>(mode_));
+        
+        for (size_t i = 0; i < algorithms_.size(); ++i) {
+            algorithms_[i]->saveState(writer);
+        }
+    }
+    
+    void loadState(StateReader& reader) override {
+        // 实现状态加载逻辑
+    }
+};
+
+// 顺序组合算法
+template<typename Input, typename Output, typename Context = SharedContext>
+class SequentialComposite : public CompositeAlgorithm<Input, Output, Context> {
+public:
+    SequentialComposite() : CompositeAlgorithm<Input, Output, Context>(CompositionMode::Sequential) {}
+    
+    Output execute(const Input& input, Context& ctx) override {
+        return this->measureExecution([&]() {
+            Input current_input = input;
+            Output result;
+            
+            for (const auto& algo : this->algorithms_) {
+                // 每个算法的输出作为下一个算法的输入
+                if constexpr (std::is_same_v<Input, Output>) {
+                    result = algo->execute(current_input, ctx);
+                    current_input = result;
+                } else {
+                    result = algo->execute(current_input, ctx);
+                }
+            }
+            
+            return result;
+        });
+    }
+};
+
+// 并行组合算法 - 简化版本（避免std::future问题）
+template<typename Input, typename Output, typename Context = SharedContext>
+class ParallelComposite : public CompositeAlgorithm<Input, Output, Context> {
+public:
+    ParallelComposite() : CompositeAlgorithm<Input, Output, Context>(CompositionMode::Parallel) {}
+    
+    Output execute(const Input& input, Context& ctx) override {
+        return this->measureExecution([&]() {
+            std::vector<Output> results;
+            
+            // 暂时使用顺序执行来避免std::future的编译问题
+            // TODO: 在修复标准库问题后重新启用并行执行
+            for (const auto& algo : this->algorithms_) {
+                ThreadLocalContext local_ctx(&ctx);
+                auto result = algo->execute(input, local_ctx);
+                local_ctx.sync();
+                results.push_back(result);
+            }
+            
+            // 合并结果（需要具体实现）
+            return mergeResults(results);
+        });
+    }
+    
+private:
+    Output mergeResults(const std::vector<Output>& results) {
+        // 默认返回第一个结果，子类可以重写此方法
+        if (!results.empty()) {
+            return results[0];
+        }
+        return Output{};
+    }
+};
+
+// 加权组合算法
+template<typename Input, typename Output, typename Context = SharedContext>
+class WeightedComposite : public CompositeAlgorithm<Input, Output, Context> {
+public:
+    WeightedComposite() : CompositeAlgorithm<Input, Output, Context>(CompositionMode::Weighted) {}
+    
+    Output execute(const Input& input, Context& ctx) override {
+        return this->measureExecution([&]() {
+            // 根据权重随机选择一个算法执行
+            double total_weight = std::accumulate(this->weights_.begin(), this->weights_.end(), 0.0);
+            double random_value = (std::rand() / static_cast<double>(RAND_MAX)) * total_weight;
+            
+            double cumulative_weight = 0.0;
+            for (size_t i = 0; i < this->algorithms_.size(); ++i) {
+                cumulative_weight += this->weights_[i];
+                if (random_value <= cumulative_weight) {
+                    return this->algorithms_[i]->execute(input, ctx);
+                }
+            }
+            
+            // 默认执行最后一个算法
+            return this->algorithms_.back()->execute(input, ctx);
+        });
+    }
+};
+
+// 条件组合算法
+template<typename Input, typename Output, typename Context = SharedContext>
+class ConditionalComposite : public CompositeAlgorithm<Input, Output, Context> {
+private:
+    std::function<bool(const Input&, const Context&)> condition_;
+    
+public:
+    ConditionalComposite(std::function<bool(const Input&, const Context&)> cond)
+        : CompositeAlgorithm<Input, Output, Context>(CompositionMode::Conditional),
+          condition_(cond) {}
+    
+    Output execute(const Input& input, Context& ctx) override {
+        return this->measureExecution([&]() {
+            if (this->algorithms_.size() < 2) {
+                throw std::runtime_error("Conditional composite requires at least 2 algorithms");
+            }
+            
+            if (condition_(input, ctx)) {
+                return this->algorithms_[0]->execute(input, ctx);
+            } else {
+                return this->algorithms_[1]->execute(input, ctx);
+            }
+        });
+    }
+};
+
+// 流水线组合算法
+template<typename Input, typename Output, typename Context = SharedContext>
+class PipelineComposite : public CompositeAlgorithm<Input, Output, Context> {
+private:
+    std::queue<Input> pipeline_queue_;
+    std::mutex queue_mutex_;
+    
+public:
+    PipelineComposite() : CompositeAlgorithm<Input, Output, Context>(CompositionMode::Pipeline) {}
+    
+    Output execute(const Input& input, Context& ctx) override {
+        return this->measureExecution([&]() {
+            // 流水线执行：每个阶段可以并行处理不同的输入
+            std::vector<std::thread> stage_threads;
+            std::vector<std::queue<Input>> stage_queues(this->algorithms_.size() + 1);
+            std::vector<std::mutex> stage_mutexes(this->algorithms_.size() + 1);
+            std::atomic<bool> done{false};
+            
+            // 初始输入
+            stage_queues[0].push(input);
+            
+            // 为每个阶段创建线程
+            for (size_t i = 0; i < this->algorithms_.size(); ++i) {
+                stage_threads.emplace_back([&, i]() {
+                    while (!done.load()) {
+                        std::unique_lock<std::mutex> in_lock(stage_mutexes[i]);
+                        if (!stage_queues[i].empty()) {
+                            auto stage_input = stage_queues[i].front();
+                            stage_queues[i].pop();
+                            in_lock.unlock();
+                            
+                            ThreadLocalContext local_ctx(&ctx);
+                            auto result = this->algorithms_[i]->execute(stage_input, local_ctx);
+                            local_ctx.sync();
+                            
+                            std::unique_lock<std::mutex> out_lock(stage_mutexes[i + 1]);
+                            if constexpr (std::is_same_v<Input, Output>) {
+                                stage_queues[i + 1].push(result);
+                            }
+                        } else {
+                            in_lock.unlock();
+                            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                        }
+                    }
+                });
+            }
+            
+            // 等待最终结果
+            Output final_result;
+            auto start_time = std::chrono::steady_clock::now();
+            while (std::chrono::steady_clock::now() - start_time < std::chrono::seconds(5)) {
+                std::unique_lock<std::mutex> lock(stage_mutexes.back());
+                if (!stage_queues.back().empty()) {
+                    if constexpr (std::is_same_v<Input, Output>) {
+                        final_result = stage_queues.back().front();
+                        stage_queues.back().pop();
+                    }
+                    break;
+                }
+                lock.unlock();
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+            
+            done.store(true);
+            for (auto& thread : stage_threads) {
+                thread.join();
+            }
+            
+            return final_result;
+        });
+    }
+};
+
+// 算法组合器
+class AlgorithmCombiner {
+private:
+    std::unique_ptr<CombinationStrategy> strategy_;
+    
+public:
+    // 设置组合策略
+    void setStrategy(std::unique_ptr<CombinationStrategy> strategy) {
+        strategy_ = std::move(strategy);
+    }
+    
+    // 创建组合算法
+    template<typename Input, typename Output, typename Context = SharedContext>
+    std::unique_ptr<CompositeAlgorithm<Input, Output, Context>> combine(
+        CompositionMode mode,
+        const std::vector<std::shared_ptr<Algorithm<Input, Output, Context>>>& algorithms
+    ) {
+        std::unique_ptr<CompositeAlgorithm<Input, Output, Context>> composite;
+        
+        switch (mode) {
+            case CompositionMode::Sequential:
+                composite = std::make_unique<SequentialComposite<Input, Output, Context>>();
+                break;
+            case CompositionMode::Parallel:
+                composite = std::make_unique<ParallelComposite<Input, Output, Context>>();
+                break;
+            case CompositionMode::Weighted:
+                composite = std::make_unique<WeightedComposite<Input, Output, Context>>();
+                break;
+            default:
+                composite = std::make_unique<SequentialComposite<Input, Output, Context>>();
+        }
+        
+        for (const auto& algo : algorithms) {
+            composite->addAlgorithm(algo);
+        }
+        
+        return composite;
+    }
+    
+    // 动态组合
+    template<typename Input, typename Output, typename Context = SharedContext>
+    std::unique_ptr<CompositeAlgorithm<Input, Output, Context>> dynamicCombine(
+        const std::vector<std::shared_ptr<Algorithm<Input, Output, Context>>>& algorithms,
+        const Context& context
+    ) {
+        if (!strategy_) {
+            throw std::runtime_error("No combination strategy set");
+        }
+        
+        // 获取算法信息
+        std::vector<AlgorithmInfo> algo_infos;
+        for (const auto& algo : algorithms) {
+            algo_infos.push_back(algo->getInfo());
+        }
+        
+        // 让策略决定组合模式
+        CompositionMode mode = strategy_->selectMode(algo_infos, context);
+        
+        // 创建组合
+        auto composite = combine<Input, Output, Context>(mode, algorithms);
+        
+        // 如果是加权模式，设置权重
+        if (mode == CompositionMode::Weighted) {
+            std::vector<PerformanceMetrics> metrics;
+            for (const auto& algo : algorithms) {
+                metrics.push_back(algo->getMetrics());
+            }
+            auto weights = strategy_->computeWeights(algo_infos, metrics[0]); // 简化示例
+            composite->setWeights(weights);
+        }
+        
+        return composite;
+    }
+    
+    // 创建自适应组合
+    template<typename Input, typename Output, typename Context = SharedContext>
+    std::unique_ptr<CompositeAlgorithm<Input, Output, Context>> createAdaptiveCombination(
+        const std::vector<std::shared_ptr<Algorithm<Input, Output, Context>>>& algorithms
+    ) {
+        // 自适应组合会根据运行时性能动态调整
+        class AdaptiveComposite : public CompositeAlgorithm<Input, Output, Context> {
+        private:
+            std::map<size_t, double> algorithm_scores_;
+            
+        public:
+            AdaptiveComposite() : CompositeAlgorithm<Input, Output, Context>(CompositionMode::Adaptive) {}
+            
+            Output execute(const Input& input, Context& ctx) override {
+                // 选择得分最高的算法
+                size_t best_idx = 0;
+                double best_score = -1.0;
+                
+                for (size_t i = 0; i < this->algorithms_.size(); ++i) {
+                    double score = algorithm_scores_[i];
+                    
+                    // 探索与利用平衡
+                    double exploration_bonus = 1.0 / (this->algorithms_[i]->getMetrics().execution_count + 1);
+                    score += exploration_bonus * 0.1;
+                    
+                    if (score > best_score) {
+                        best_score = score;
+                        best_idx = i;
+                    }
+                }
+                
+                // 执行选中的算法
+                auto start = std::chrono::high_resolution_clock::now();
+                auto result = this->algorithms_[best_idx]->execute(input, ctx);
+                auto end = std::chrono::high_resolution_clock::now();
+                
+                // 更新得分
+                double exec_time = std::chrono::duration<double, std::milli>(end - start).count();
+                double reward = 0.0;
+                
+                // 根据执行结果计算奖励
+                if (ctx.has("coverage_gain")) {
+                    reward += ctx.template get<double>("coverage_gain").value_or(0.0);
+                }
+                reward += 1.0 / (exec_time + 1.0); // 执行速度奖励
+                
+                // 指数移动平均更新
+                algorithm_scores_[best_idx] = algorithm_scores_[best_idx] * 0.95 + reward * 0.05;
+                
+                return result;
+            }
+        };
+        
+        auto adaptive = std::make_unique<AdaptiveComposite>();
+        for (const auto& algo : algorithms) {
+            adaptive->addAlgorithm(algo);
+        }
+        
+        return adaptive;
+    }
+};
+
+} // namespace triofuzz

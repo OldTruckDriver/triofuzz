@@ -1,0 +1,4 @@
+commit: 3e7a99128f91be279f463b9814d8deb8c6c6c9ef
+commit_date: 2025-10-22 22:49:18+00:00
+fuzz_target: exif_loader_fuzzer
+project: libexif

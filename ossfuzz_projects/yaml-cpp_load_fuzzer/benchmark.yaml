@@ -1,0 +1,4 @@
+commit: a83cd31548b19d50f3f983b069dceb4f4d50756d
+commit_date: 2025-10-01 21:57:22+00:00
+fuzz_target: load_fuzzer
+project: yaml-cpp

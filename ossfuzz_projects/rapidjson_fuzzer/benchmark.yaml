@@ -1,0 +1,4 @@
+commit: 24b5e7a8b27f42fa16b96fc70aade9106cf7102f
+commit_date: 2025-02-05 13:28:08+00:00
+fuzz_target: fuzzer
+project: rapidjson

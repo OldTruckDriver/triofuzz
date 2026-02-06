@@ -1,0 +1,4 @@
+commit: aae7ddb791c0321cb241d19770d9365276b855d1
+commit_date: 2025-11-07 14:25:18+00:00
+fuzz_target: av1_dec_fuzzer
+project: libaom
