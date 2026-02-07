@@ -9,7 +9,7 @@
 
 namespace triofuzz {
 
-// 静态成员变量定义
+// Static member variable definitions
 std::unordered_map<std::string, std::vector<std::vector<uint8_t>>> SmartDictionaryMutation::dictionary_cache_;
 std::mutex SmartDictionaryMutation::cache_mutex_;
 
@@ -18,14 +18,14 @@ MutationOutput SmartDictionaryMutation::execute(const MutationInput& input, Shar
         // Check for dictionary files in the context
         loadDictionariesFromContext(ctx);
 
-        // 优化：只在特定条件下提取字典，大幅减少开销
+        // Optimization: only extract dictionary under certain conditions to greatly reduce overhead
         executions_since_extract_++;
         if (executions_since_extract_ >= extract_interval_) {
             extractDictionaryFromInput(input);
             executions_since_extract_ = 0;
         }
 
-        // 合并静态、动态和外部字典
+        // Merge static, dynamic, and external dictionaries
         std::vector<std::vector<uint8_t>> combined_dict = static_dictionary_;
         combined_dict.insert(combined_dict.end(), dynamic_dictionary_.begin(), dynamic_dictionary_.end());
         combined_dict.insert(combined_dict.end(), external_dictionary_.begin(), external_dictionary_.end());
@@ -65,7 +65,7 @@ MutationOutput SmartDictionaryMutation::execute(const MutationInput& input, Shar
         }
 
         if (combined_dict.empty()) {
-            return input; // 没有字典条目
+            return input; // No dictionary entries
         }
 
         // Enhanced strategy selection based on input characteristics
@@ -126,11 +126,11 @@ std::vector<uint8_t> SmartDictionaryMutation::selectDictionaryEntry(
         return {};
     }
 
-    // 优化：对于大字典，采样而非全量计算权重
+    // Optimization: for large dictionaries, sample instead of computing full weights
     size_t sample_size = std::min(dictionary.size(), size_t(50));
 
     if (dictionary.size() <= sample_size) {
-        // 小字典：完整权重计算
+        // Small dictionary: compute full weights
         std::vector<double> weights(dictionary.size(), 1.0);
 
         for (size_t i = 0; i < dictionary.size(); ++i) {
@@ -153,7 +153,7 @@ std::vector<uint8_t> SmartDictionaryMutation::selectDictionaryEntry(
         std::discrete_distribution<size_t> weighted_dist(weights.begin(), weights.end());
         return dictionary[weighted_dist(random_gen_)];
     } else {
-        // 大字典：随机采样 + 简化权重
+        // Large dictionary: random sampling + simplified scoring
         std::uniform_int_distribution<size_t> dist(0, dictionary.size() - 1);
         std::vector<size_t> sampled_indices;
         sampled_indices.reserve(sample_size);
@@ -162,7 +162,7 @@ std::vector<uint8_t> SmartDictionaryMutation::selectDictionaryEntry(
             sampled_indices.push_back(dist(random_gen_));
         }
 
-        // 在采样中选择最优
+        // Pick the best among samples
         size_t best_idx = sampled_indices[0];
         double best_score = 1.0;
 
@@ -205,9 +205,9 @@ bool SmartDictionaryMutation::isRelevantToInput(
 
     if (entry.empty() || input.empty()) return false;
 
-    // 优化：只检查前4个字节，采样而非全扫描
+    // Optimization: only check the first 4 bytes; sample instead of full scan
     size_t check_len = std::min(entry.size(), size_t(4));
-    size_t stride = std::max(size_t(1), input.size() / 16);  // 最多检查16个位置
+    size_t stride = std::max(size_t(1), input.size() / 16);  // Check at most 16 positions
 
     for (size_t i = 0; i + entry.size() <= input.size(); i += stride) {
         size_t matches = 0;
@@ -226,32 +226,32 @@ bool SmartDictionaryMutation::isRelevantToInput(
 
 void SmartDictionaryMutation::initializeStaticDictionary() {
     static_dictionary_ = {
-        // 常见的边界值
+        // Common boundary values
         {0x00}, {0x01}, {0x7F}, {0x80}, {0xFF},
         {0x00, 0x00}, {0x01, 0x00}, {0xFF, 0xFF},
         {0x00, 0x00, 0x00, 0x00}, {0xFF, 0xFF, 0xFF, 0xFF},
         
-        // 常见的数字
+        // Common numbers
         {'0'}, {'1'}, {'9'},
         {'1', '0'}, {'1', '0', '0'}, {'2', '5', '5'},
         {'-', '1'}, {'4', '2'}, {'1', '3', '3', '7'},
         
-        // 常见的分隔符
+        // Common separators
         {' '}, {'\t'}, {'\n'}, {'\r'}, {'\0'},
         {':'}, {';'}, {','}, {'.'}, {'/'}, {'\\'},
         
-        // 常见的操作符
+        // Common operators
         {'+'}, {'-'}, {'*'}, {'='}, {'<'}, {'>'},
         {'&'}, {'|'}, {'^'}, {'%'}, {'!'}, {'?'},
         
-        // 常见的括号
+        // Common brackets
         {'('}, {')'}, {'['}, {']'}, {'{'}, {'}'},
         {'<', '/'}, {'/', '>'}, 
         
-        // 常见的引号
+        // Common quotes
         {'"'}, {'\''}, {'`'},
         
-        // 常见的字符串
+        // Common strings
         {'h', 'e', 'l', 'l', 'o'},
         {'t', 'e', 's', 't'},
         {'a', 'd', 'm', 'i', 'n'},
@@ -260,13 +260,13 @@ void SmartDictionaryMutation::initializeStaticDictionary() {
         {'t', 'r', 'u', 'e'},
         {'f', 'a', 'l', 's', 'e'},
         
-        // HTTP相关
+        // HTTP-related
         {'G', 'E', 'T'},
         {'P', 'O', 'S', 'T'},
         {'H', 'T', 'T', 'P'},
         {'C', 'o', 'n', 't', 'e', 'n', 't', '-', 'T', 'y', 'p', 'e'},
         
-        // 文件格式标识
+        // File-format signatures
         {'%', 'P', 'D', 'F'},  // PDF
         {0x89, 'P', 'N', 'G'}, // PNG
         {0xFF, 0xD8, 0xFF},     // JPEG
@@ -301,7 +301,7 @@ void SmartDictionaryMutation::initializeStaticDictionary() {
 std::vector<std::vector<uint8_t>> SmartDictionaryMutation::findPotentialTokens(const std::vector<uint8_t>& input) {
     std::vector<std::vector<uint8_t>> tokens;
     
-    // 查找连续的可打印字符序列
+    // Find contiguous sequences of printable characters
     std::vector<uint8_t> current_token;
     for (uint8_t byte : input) {
         if (std::isprint(byte) && byte != ' ') {
@@ -314,12 +314,12 @@ std::vector<std::vector<uint8_t>> SmartDictionaryMutation::findPotentialTokens(c
         }
     }
     
-    // 处理最后一个token
+    // Handle the last token
     if (current_token.size() >= 2 && current_token.size() <= 16) {
         tokens.push_back(current_token);
     }
     
-    // 查找4字节标签（常见于ICC profiles）
+    // Find 4-byte tags (common in ICC profiles)
     for (size_t i = 0; i + 3 < input.size(); ++i) {
         if (std::isalpha(input[i]) && std::isalpha(input[i+1]) && 
             std::isalpha(input[i+2]) && std::isalpha(input[i+3])) {
@@ -328,19 +328,19 @@ std::vector<std::vector<uint8_t>> SmartDictionaryMutation::findPotentialTokens(c
         }
     }
     
-    // 查找重复的字节模式 - 优化版本，使用哈希表避免O(n³)复杂度
-    // 不限制输入大小，保持完整的覆盖率探索能力
+    // Find repeated byte patterns - optimized with a hash map to avoid O(n^3) complexity
+    // Do not limit input size to preserve full coverage exploration.
 
     for (size_t len = 2; len <= 8 && len <= input.size(); ++len) {
         std::unordered_map<std::vector<uint8_t>, size_t, VectorHash> pattern_counts;
 
-        // 第一遍：统计所有模式的出现次数 - O(n)
+        // Pass 1: count occurrences of each pattern - O(n)
         for (size_t i = 0; i <= input.size() - len; ++i) {
             std::vector<uint8_t> pattern(input.begin() + i, input.begin() + i + len);
             pattern_counts[pattern]++;
         }
 
-        // 第二遍：添加出现多次的模式 - O(unique_patterns)
+        // Pass 2: add patterns that occur multiple times - O(unique_patterns)
         for (const auto& pair : pattern_counts) {
             if (pair.second > 1) {
                 tokens.push_back(pair.first);
@@ -362,7 +362,7 @@ MutationOutput SmartDictionaryMutation::applyDictionaryMutation(
     
     switch (strategy) {
         case 0: {
-            // 替换策略：在输入中查找并替换现有内容
+            // Replacement strategy: overwrite existing content at a random position
             if (result.size() >= dict_entry.size()) {
                 std::uniform_int_distribution<size_t> pos_dist(0, result.size() - dict_entry.size());
                 size_t pos = pos_dist(random_gen_);
@@ -371,26 +371,26 @@ MutationOutput SmartDictionaryMutation::applyDictionaryMutation(
             break;
         }
         case 1: {
-            // 插入策略：在随机位置插入字典条目
+            // Insertion strategy: insert dictionary entry at a random position
             std::uniform_int_distribution<size_t> pos_dist(0, result.size());
             size_t pos = pos_dist(random_gen_);
             result.insert(result.begin() + pos, dict_entry.begin(), dict_entry.end());
             break;
         }
         case 2: {
-            // 附加策略：在开头或结尾添加字典条目
+            // Append strategy: add dictionary entry at the beginning or end
             std::uniform_int_distribution<int> end_dist(0, 1);
             if (end_dist(random_gen_) == 0) {
-                // 添加到开头
+                // Add to the beginning
                 result.insert(result.begin(), dict_entry.begin(), dict_entry.end());
             } else {
-                // 添加到结尾
+                // Add to the end
                 result.insert(result.end(), dict_entry.begin(), dict_entry.end());
             }
             break;
         }
         case 3: {
-            // 智能替换：查找相似的模式并替换
+            // Smart replacement: find the most similar window and replace it
             if (result.size() >= dict_entry.size()) {
                 size_t best_pos = 0;
                 size_t best_matches = 0;
@@ -409,7 +409,7 @@ MutationOutput SmartDictionaryMutation::applyDictionaryMutation(
                     }
                 }
                 
-                // 如果找到任何匹配，就替换
+                // If any match is found, replace
                 if (best_matches > 0) {
                     std::copy(dict_entry.begin(), dict_entry.end(), result.begin() + best_pos);
                 }
@@ -417,7 +417,7 @@ MutationOutput SmartDictionaryMutation::applyDictionaryMutation(
             break;
         }
         case 4: {
-            // 交替策略：将字典条目与现有数据交替
+            // Alternation strategy: interleave dictionary entry with existing data
             MutationOutput alternated;
             size_t input_idx = 0, dict_idx = 0;
             bool use_dict = random_gen_() % 2;
@@ -434,7 +434,7 @@ MutationOutput SmartDictionaryMutation::applyDictionaryMutation(
             break;
         }
         default: {
-            // 多重插入：在多个位置插入字典条目
+            // Multi-insert: insert dictionary entry at multiple positions
             std::uniform_int_distribution<int> count_dist(1, 3);
             int insertions = count_dist(random_gen_);
             
@@ -454,14 +454,14 @@ void SmartDictionaryMutation::extractDictionaryFromInput(const std::vector<uint8
     auto new_tokens = findPotentialTokens(input);
 
     for (const auto& token : new_tokens) {
-        // 优化：使用哈希集合 O(1) 检查重复，替换 O(n) 线性搜索
+        // Optimization: use a hash set for O(1) duplicate checks instead of O(n) linear search
         if (dynamic_dictionary_set_.find(token) == dynamic_dictionary_set_.end()) {
             dynamic_dictionary_.push_back(token);
             dynamic_dictionary_set_.insert(token);
 
-            // 限制动态字典大小
+            // Limit dynamic dictionary size
             if (dynamic_dictionary_.size() > max_dynamic_entries_) {
-                // 删除最老的条目
+                // Delete oldest entry
                 const auto& oldest = dynamic_dictionary_.front();
                 dynamic_dictionary_set_.erase(oldest);
                 dynamic_dictionary_.erase(dynamic_dictionary_.begin());
@@ -473,7 +473,7 @@ void SmartDictionaryMutation::extractDictionaryFromInput(const std::vector<uint8
 void SmartDictionaryMutation::saveState(StateWriter& writer) const {
     MutationAlgorithm::saveState(writer);
     
-    // 保存动态字典
+    // Save dynamic dictionary
     writer.writeInt("dynamic_dict_size", dynamic_dictionary_.size());
     for (size_t i = 0; i < dynamic_dictionary_.size(); ++i) {
         const auto& entry = dynamic_dictionary_[i];
@@ -487,11 +487,11 @@ void SmartDictionaryMutation::saveState(StateWriter& writer) const {
 void SmartDictionaryMutation::loadState(StateReader& reader) {
     MutationAlgorithm::loadState(reader);
 
-    // 加载动态字典
+    // Load dynamic dictionary
     auto dict_size = reader.readInt("dynamic_dict_size");
     if (dict_size.has_value()) {
         dynamic_dictionary_.clear();
-        dynamic_dictionary_set_.clear();  // 清空哈希集合
+        dynamic_dictionary_set_.clear();  // Clear hash set
 
         for (size_t i = 0; i < static_cast<size_t>(dict_size.value()); ++i) {
             auto entry_size = reader.readInt("entry_size");
@@ -504,7 +504,7 @@ void SmartDictionaryMutation::loadState(StateReader& reader) {
                     }
                 }
                 dynamic_dictionary_.push_back(entry);
-                dynamic_dictionary_set_.insert(entry);  // 同步到哈希集合
+                dynamic_dictionary_set_.insert(entry);  // Mirror into hash set
             }
         }
     }
@@ -513,7 +513,7 @@ void SmartDictionaryMutation::loadState(StateReader& reader) {
 bool SmartDictionaryMutation::loadDictionaryFromFile(const std::string& file_path) {
     external_dictionary_.clear();
     
-    // 检查缓存
+    // Check cache
     {
         std::lock_guard<std::mutex> lock(cache_mutex_);
         auto it = dictionary_cache_.find(file_path);
@@ -523,7 +523,7 @@ bool SmartDictionaryMutation::loadDictionaryFromFile(const std::string& file_pat
         }
     }
     
-    // 缓存中没有，从文件加载
+    // Not in cache; load from file
     std::ifstream file(file_path);
     if (!file.is_open()) {
         std::cerr << "[SmartDictionary] Warning: Cannot open dictionary file: " << file_path << std::endl;
@@ -537,7 +537,7 @@ bool SmartDictionaryMutation::loadDictionaryFromFile(const std::string& file_pat
     while (std::getline(file, line)) {
         line_number++;
         
-        // 跳过空行和注释
+        // Skip empty lines and comments
         if (line.empty() || line[0] == '#') {
             continue;
         }
@@ -556,7 +556,7 @@ bool SmartDictionaryMutation::loadDictionaryFromFile(const std::string& file_pat
     
     file.close();
     
-    // 加载成功后缓存结果
+    // Cache result after successful load
     if (loaded_entries > 0) {
         {
             std::lock_guard<std::mutex> lock(cache_mutex_);
@@ -579,7 +579,7 @@ void SmartDictionaryMutation::setDictionaryFile(const std::string& file_path) {
 std::vector<uint8_t> SmartDictionaryMutation::parseDictionaryLine(const std::string& line) {
     std::vector<uint8_t> result;
     
-    // 去除首尾空格
+    // Trim leading and trailing whitespace
     std::string trimmed_line = line;
     trimmed_line.erase(0, trimmed_line.find_first_not_of(" \t"));
     trimmed_line.erase(trimmed_line.find_last_not_of(" \t") + 1);
@@ -588,13 +588,13 @@ std::vector<uint8_t> SmartDictionaryMutation::parseDictionaryLine(const std::str
         return result;
     }
     
-    // 检查是否是quoted string格式 (如 "string" 或 'string')
+    // Check for quoted-string format (e.g., "string" or 'string')
     if ((trimmed_line.front() == '"' && trimmed_line.back() == '"') ||
         (trimmed_line.front() == '\'' && trimmed_line.back() == '\'')) {
-        // 解析quoted string
+        // Parse quoted string
         std::string content = trimmed_line.substr(1, trimmed_line.length() - 2);
         
-        // 处理转义序列
+        // Handle escape sequences
         for (size_t i = 0; i < content.length(); ++i) {
             if (content[i] == '\\' && i + 1 < content.length()) {
                 switch (content[i + 1]) {
@@ -605,7 +605,7 @@ std::vector<uint8_t> SmartDictionaryMutation::parseDictionaryLine(const std::str
                     case '"': result.push_back('"'); i++; break;
                     case '\'': result.push_back('\''); i++; break;
                     case 'x': {
-                        // 处理十六进制转义 \xHH
+                        // Handle hex escape \\xHH
                         if (i + 3 < content.length()) {
                             std::string hex_str = content.substr(i + 2, 2);
                             try {
@@ -629,14 +629,14 @@ std::vector<uint8_t> SmartDictionaryMutation::parseDictionaryLine(const std::str
             }
         }
     } else if (trimmed_line.find('=') != std::string::npos) {
-        // 处理 key="value" 格式
+        // Handle key="value" format
         size_t eq_pos = trimmed_line.find('=');
         if (eq_pos != std::string::npos && eq_pos + 1 < trimmed_line.length()) {
             std::string value_part = trimmed_line.substr(eq_pos + 1);
             return parseDictionaryLine(value_part);
         }
     } else {
-        // 处理普通字符串（没有引号）
+        // Handle plain string (no quotes)
         for (char c : trimmed_line) {
             result.push_back(static_cast<uint8_t>(c));
         }

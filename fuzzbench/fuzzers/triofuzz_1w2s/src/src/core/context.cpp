@@ -3,6 +3,6 @@
 
 namespace triofuzz {
 
-// ThreadLocalContext已经在头文件中完全实现，这里为空文件保留结构
+// ThreadLocalContext is fully implemented in the header; this file is intentionally empty to preserve structure.
 
 } // namespace triofuzz

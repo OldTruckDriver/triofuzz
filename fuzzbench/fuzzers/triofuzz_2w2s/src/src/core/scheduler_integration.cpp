@@ -1,41 +1,41 @@
 #include "../../include/core/engine.hpp"
 #include "../../include/utils/corpus_manager.hpp"
 #include "../../include/algorithms/scheduling/rare_edge_scheduler.hpp"
-// #include "../../include/algorithms/scheduling/fast_scheduler.hpp" // 已归档
-// #include "../../include/algorithms/scheduling/mopt_scheduler.hpp" // 已归档
+// #include "../../include/algorithms/scheduling/fast_scheduler.hpp" // Archived
+// #include "../../include/algorithms/scheduling/mopt_scheduler.hpp" // Archived
 #include "../../include/algorithms/scheduling/scheduling_algorithms.hpp"
 #include <iostream>
 
 namespace triofuzz {
 
-// 根据完整流水线组合选择种子 (支持调度器)
+// Select seed based on the full pipeline combination (scheduler-aware)
 Seed FuzzingEngine::selectSeedWithScheduler(const AlgorithmCombination& combination) {
-    // 如果组合指定了scheduler，使用对应的调度器
+    // If the combination specifies a scheduler, use it.
     if (!combination.scheduler_name.empty()) {
-        // 获取所有可用种子
+        // Collect all available seeds
         std::vector<Seed> available_seeds;
         if (corpus_manager_) {
-            // 简化方案：多次调用getNextSeed()来构建种子池
-            // 限制为最多100个种子以避免性能问题
+            // Simplified approach: call getNextSeed() repeatedly to build a seed pool.
+            // Limit to at most 100 seeds to avoid performance issues.
             for (size_t i = 0; i < 100; ++i) {
                 auto seed_opt = corpus_manager_->getNextSeed();
                 if (seed_opt.has_value()) {
                     available_seeds.push_back(seed_opt.value());
                 } else {
-                    break;  // 没有更多种子
+                    break;  // No more seeds
                 }
             }
         }
 
-        // 如果没有可用种子，回退到默认选择
+        // If no seeds are available, fall back to default selection.
         if (available_seeds.empty()) {
             return selectSeed();
         }
 
-        // 根据scheduler类型选择种子
+        // Select seed based on scheduler type
         try {
             if (combination.scheduler_name == "rare_edge_scheduler") {
-                // 使用RareEdgeScheduler - 优先选择触发稀有边的种子
+                // Use RareEdgeScheduler - prioritize seeds that hit rare edges
                 RareEdgeScheduler scheduler;
                 auto selected = scheduler.execute(available_seeds, *global_context_);
 
@@ -46,9 +46,9 @@ Seed FuzzingEngine::selectSeedWithScheduler(const AlgorithmCombination& combinat
                 }
                 return selected;
 
-            // 已归档
+            // Archived
             // } else if (combination.scheduler_name == "fast_scheduler") {
-            //     // 使用FastScheduler - 优先选择favored种子
+            //     // Use FastScheduler - prioritize favored seeds
             //     FastScheduler scheduler;
             //     auto selected = scheduler.execute(available_seeds, *global_context_);
 
@@ -59,8 +59,8 @@ Seed FuzzingEngine::selectSeedWithScheduler(const AlgorithmCombination& combinat
             //     }
             //     return selected;
 
-            // } else if (combination.scheduler_name == "mopt_scheduler") { // 已归档
-            //     // 使用MOPTScheduler - 多目标优化选择
+            // } else if (combination.scheduler_name == "mopt_scheduler") { // Archived
+            //     // Use MOptScheduler - multi-objective optimization selection
             //     MOptScheduler scheduler;
             //     auto selected = scheduler.execute(available_seeds, *global_context_);
 
@@ -70,8 +70,8 @@ Seed FuzzingEngine::selectSeedWithScheduler(const AlgorithmCombination& combinat
             //     }
             //     return selected;
 
-            // } else if (combination.scheduler_name == "energy_scheduler") { // 已归档
-            //     // 使用EnergyScheduler - 基于能量分配选择
+            // } else if (combination.scheduler_name == "energy_scheduler") { // Archived
+            //     // Use EnergyScheduler - energy-based selection
             //     EnergyScheduler scheduler;
             //     auto selected = scheduler.execute(available_seeds, *global_context_);
 
@@ -91,67 +91,67 @@ Seed FuzzingEngine::selectSeedWithScheduler(const AlgorithmCombination& combinat
         }
     }
 
-    // 如果没有指定scheduler或调度器失败，使用默认的CorpusManager选择
+    // If no scheduler is specified or the scheduler fails, use the default CorpusManager selection.
     return selectSeed();
 }
 
-// 根据feedback_analyzer处理执行结果
+// Process execution results according to feedback_analyzer
 void FuzzingEngine::processFeedbackWithAnalyzer(
     const ExecutionResult& result,
     const Seed& seed,
     const AlgorithmCombination& combination
 ) {
-    // 如果指定了feedback_analyzer，使用对应的分析器
+    // If feedback_analyzer is specified, use the corresponding analyzer.
     if (!combination.feedback_analyzer.empty()) {
         try {
             if (combination.feedback_analyzer == "coverage_analyzer") {
-                // 使用CoverageAnalyzer - 专注覆盖率分析
-                // 这是默认行为，与processResultFast类似
+                // Use CoverageAnalyzer - focus on coverage analysis
+                // This is the default behavior, similar to processResultFast.
                 if (result.coverage.hasNewCoverage() && !result.coverage.new_edges.empty()) {
-                    // 直接使用processResultFast处理
+                    // Process directly with processResultFast
                     processResultFast(result, seed, combination);
                     return;
                 }
 
             } else if (combination.feedback_analyzer == "crash_analyzer") {
-                // 使用CrashAnalyzer - 专注崩溃分析
+                // Use CrashAnalyzer - focus on crash analysis
                 if (result.status == ExecutionResult::Status::Crash) {
-                    // 更详细的崩溃分析
+                    // More detailed crash analysis
                     analyzeCrash(result, seed, combination);
                 }
-                // 仍然处理覆盖率 - 使用processResultFast
+                // Still handle coverage via processResultFast
                 processResultFast(result, seed, combination);
 
             } else if (combination.feedback_analyzer == "enhanced_coverage_analyzer") {
-                // 使用EnhancedCoverageAnalyzer - 更深入的覆盖率分析
+                // Use EnhancedCoverageAnalyzer - deeper coverage analysis
                 enhancedCoverageAnalysis(result, seed, combination);
 
             } else if (combination.feedback_analyzer == "lightweight_coverage_analyzer") {
-                // 使用LightweightCoverageAnalyzer - 轻量级快速分析
+                // Use LightweightCoverageAnalyzer - lightweight fast analysis
                 if (result.coverage.hasNewCoverage()) {
-                    // 快速路径：只添加明显有价值的种子
+                    // Fast path: only add clearly valuable seeds
                     if (result.coverage.new_edges.size() >= 5 ||
                         result.status == ExecutionResult::Status::Crash) {
                         processResultFast(result, seed, combination);
                     }
                 }
             } else {
-                // 未知的analyzer，使用默认处理
+                // Unknown analyzer; use default processing
                 processResultFast(result, seed, combination);
             }
         } catch (const std::exception& e) {
             std::cerr << "[WARNING] Feedback analyzer '" << combination.feedback_analyzer
                       << "' failed: " << e.what() << ", using default processing" << std::endl;
-            // 回退到默认处理
+            // Fall back to default processing
             processResultFast(result, seed, combination);
         }
     } else {
-        // 没有指定analyzer，使用默认处理
+        // No analyzer specified; use default processing
         processResultFast(result, seed, combination);
     }
 }
 
-// 崩溃详细分析
+// Detailed crash analysis
 void FuzzingEngine::analyzeCrash(
     const ExecutionResult& result,
     const Seed& seed,
@@ -175,10 +175,10 @@ void FuzzingEngine::analyzeCrash(
         }
     }
 
-    // 崩溃样本会由processResultFast自动保存，这里只做额外分析
+    // Crash samples are saved by processResultFast; only do extra analysis here.
 }
 
-// 增强覆盖率分析
+// Enhanced coverage analysis
 void FuzzingEngine::enhancedCoverageAnalysis(
     const ExecutionResult& result,
     const Seed& seed,
@@ -195,10 +195,10 @@ void FuzzingEngine::enhancedCoverageAnalysis(
             std::cout << "  Combination: " << combination.toString() << std::endl;
         }
 
-        // 使用processResultFast处理并添加到语料库
+        // Process with processResultFast and add to the corpus
         processResultFast(result, seed, combination);
 
-        // 如果发现稀有边，记录到统计中（Thompson Sampling会通过reward看到这个效果）
+        // If rare edges are found, record them in stats (Thompson Sampling will observe it via reward).
         if (!result.coverage.rare_edges.empty()) {
             static bool verbose_rare = std::getenv("triofuzz_VERBOSE_RARE") != nullptr;
             if (verbose_rare) {

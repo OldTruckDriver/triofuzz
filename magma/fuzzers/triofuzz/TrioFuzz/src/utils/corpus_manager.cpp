@@ -7,7 +7,7 @@
 
 namespace triofuzz {
 
-// CorpusManager的一些实现细节可以在这里添加
-// 目前类的主要实现已经在头文件中了
+// Additional CorpusManager implementation details can be added here.
+// The main implementation currently lives in the header.
 
 } // namespace triofuzz 

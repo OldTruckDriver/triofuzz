@@ -3408,25 +3408,25 @@ FuzzingEngine::FuzzingEngine(const FuzzingConfig& config) : config_(config) {
                   << batch_config.worker_threads << " worker threads" << std::endl;
     }
     
-    // 在严格模式下，最小化组件初始化
+    // In strict mode, initialize the minimal set of components
     if (config_.strict_algorithm_isolation) {
         std::cout << "[STRICT MODE] Minimal component initialization" << std::endl;
         
-        // 根据disable_system_algorithms决定覆盖率收集器的类型
+        // Choose coverage collector type based on disable_system_algorithms
         if (config_.disable_system_algorithms) {
             std::cout << "[STRICT MODE] Using minimal coverage collector (LibFuzzer-like)" << std::endl;
-            // TODO: 这里可以初始化一个最小化的覆盖率收集器
+            // TODO: Initialize a minimal coverage collector here (if needed)
             coverage_collector_ = std::make_unique<CoverageCollector>();
             
-            // 禁用所有增强功能
+            // Disable all enhancements
             std::cout << "[STRICT MODE] All CollaFuzz enhancements disabled for fair comparison" << std::endl;
             
         } else {
-            // 使用完整的覆盖率收集器
+            // Use the full coverage collector
             coverage_collector_ = std::make_unique<CoverageCollector>();
         }
         
-        // 只在必要时初始化性能监控和崩溃分析
+        // Only initialize performance monitoring and crash analysis when necessary
         if (!config_.disable_system_algorithms) {
             performance_monitor_ = std::make_unique<PerformanceMonitor>();
             // crash_analyzer_ = std::make_unique<CrashAnalyzer>(); // archived
@@ -3434,17 +3434,17 @@ FuzzingEngine::FuzzingEngine(const FuzzingConfig& config) : config_(config) {
             std::cout << "[STRICT MODE] System algorithms disabled" << std::endl;
         }
         
-        // 严格模式下不使用动态组合
+        // In strict mode, do not use dynamic combinations
         std::cout << "[STRICT MODE] Dynamic combination disabled, using only fixed combinations" << std::endl;
     } else {
         std::cout << "[Standard Mode] Full component initialization" << std::endl;
         
-        // 标准模式 - 初始化所有组件
+        // Standard mode: initialize all components
         performance_monitor_ = std::make_unique<PerformanceMonitor>();
         coverage_collector_ = std::make_unique<CoverageCollector>();
         // crash_analyzer_ = std::make_unique<CrashAnalyzer>(); // archived
         
-        // 只在启用动态组合时创建BatchAlgorithmSelector
+        // Create BatchAlgorithmSelector only when dynamic combination is enabled
         if (config_.enable_dynamic_combination) {
             batch_selector_ = std::make_unique<BatchAlgorithmSelector>(config, global_context_,
                                                                *algorithm_registry_,
@@ -3459,11 +3459,11 @@ FuzzingEngine::FuzzingEngine(const FuzzingConfig& config) : config_(config) {
         }
     }
     
-    // 初始化默认执行器
+    // Initialize default executor
     default_executor_ = std::make_shared<SimpleExecutor>(config_.target_binary);
     std::cout << "[FuzzingEngine] Default executor initialized" << std::endl;
 
-    // 初始化 Checkpoint Manager（如果启用crash recovery）
+    // Initialize CheckpointManager (if crash recovery is enabled)
     if (config_.enable_crash_recovery) {
         CheckpointManager::Config ckpt_config;
         ckpt_config.enabled = true;
@@ -3477,7 +3477,7 @@ FuzzingEngine::FuzzingEngine(const FuzzingConfig& config) : config_(config) {
         std::cout << "[FuzzingEngine] Crash recovery enabled with checkpoint interval: "
                   << config_.checkpoint_interval_sec << " seconds" << std::endl;
 
-        // 如果需要从checkpoint恢复
+        // Restore from checkpoint if requested
         if (config_.restore_from_checkpoint) {
             if (loadCheckpoint()) {
                 std::cout << "[FuzzingEngine] Successfully restored from checkpoint" << std::endl;
@@ -3550,21 +3550,21 @@ FuzzingEngine::~FuzzingEngine() {
 void FuzzingEngine::initialize() {
     std::cout << "Initializing Fuzzing Engine..." << std::endl;
     
-    // 注册默认算法
+    // Register default algorithms
     registerDefaultAlgorithms();
 
-    // 初始化性能优化组件（仅在非严格模式下）
+    // Initialize performance optimization components (non-strict mode only)
     if (!config_.strict_algorithm_isolation) {
-        // 初始化算法池 - 预热常用算法（使用 AlgorithmConfig）
+        // Initialize algorithm pool: prewarm hot algorithms (via AlgorithmConfig)
         if (algorithm_pool_) {
             std::vector<std::string> hot_algorithms = AlgoConfig::ENABLED_MUTATIONS;
             algorithm_pool_->prewarm(hot_algorithms);
             std::cout << "[OPTIMIZATION] Algorithm pool prewarmed with " << hot_algorithms.size() << " algorithms" << std::endl;
         }
 
-        // 设置批处理执行器
+        // Configure batch executor
         if (batch_executor_) {
-            // 设置执行器回调
+            // Set executor callback
             batch_executor_->setTargetExecutor([this](const std::vector<uint8_t>& input) {
                 BatchExecutor::ExecutionResult result;
                 auto exec_result = executeInput(input);
@@ -3579,13 +3579,13 @@ void FuzzingEngine::initialize() {
                       << BatchExecutor::DEFAULT_BATCH_SIZE << std::endl;
         }
 
-        // 使用无锁覆盖率收集器
+        // Use lock-free coverage collector
         if (lockfree_coverage_collector_) {
             std::cout << "[OPTIMIZATION] Lock-free coverage collector enabled" << std::endl;
         }
     }
 
-    // 配置CorpusManager使用正确的输出目录和AFL++优化
+    // Configure CorpusManager with the correct output dirs and AFL++-style optimizations
     if (corpus_manager_) {
         CorpusManager::Config corpus_config;
         corpus_config.max_corpus_size = 10000;
@@ -3595,28 +3595,28 @@ void FuzzingEngine::initialize() {
         corpus_config.enable_prioritization = true;
         corpus_config.energy_update_rate = 0.1;
         
-        // 根据严格模式配置corpus优化
+        // Configure corpus optimization based on strict mode
         if (config_.strict_algorithm_isolation) {
-            // 严格模式：禁用所有corpus优化，确保实验纯净性
+            // Strict mode: disable all corpus optimizations to keep ablation experiments clean
             corpus_config.enable_auto_optimization = false;
             corpus_config.enable_coverage_based_optimization = false;
             corpus_config.enable_aggressive_cleanup = false;
             corpus_config.optimization_interval_seconds = 0;
-            corpus_config.corpus_bloat_threshold = 1.0; // 不进行清理
-            corpus_config.performance_degradation_threshold = 1.0; // 不进行清理
-            corpus_config.max_daily_corpus_growth = std::numeric_limits<size_t>::max(); // 无限制
+            corpus_config.corpus_bloat_threshold = 1.0; // no cleanup
+            corpus_config.performance_degradation_threshold = 1.0; // no cleanup
+            corpus_config.max_daily_corpus_growth = std::numeric_limits<size_t>::max(); // unlimited
             
-            // 进一步禁用优化以模拟原生libfuzzer
+            // Further disable optimizations to emulate native libFuzzer
             if (config_.disable_system_algorithms) {
-                corpus_config.enable_minimization = false;  // 禁用种子最小化
-                corpus_config.enable_prioritization = false; // 禁用优先级排序
-                corpus_config.energy_update_rate = 0.0;     // 禁用能量更新
+                corpus_config.enable_minimization = false;  // Disable seed minimization
+                corpus_config.enable_prioritization = false; // Disable prioritization
+                corpus_config.energy_update_rate = 0.0;     // Disable energy updates
                 std::cout << "[STRICT MODE] All corpus enhancements disabled (LibFuzzer-like mode)" << std::endl;
             } else {
                 std::cout << "[STRICT MODE] Basic corpus optimizations disabled for fair comparison" << std::endl;
             }
         } else {
-            // 标准模式：启用AFL++风格的corpus优化（使用配置参数）
+            // Standard mode: enable AFL++-style corpus optimization (configured via flags)
             corpus_config.enable_auto_optimization = config_.corpus_optimization_enabled;
             corpus_config.optimization_interval_seconds = config_.corpus_optimization_interval;
             corpus_config.corpus_bloat_threshold = config_.corpus_bloat_threshold;
@@ -3642,7 +3642,7 @@ void FuzzingEngine::initialize() {
             std::cout << "[FuzzingEngine] AFL++ style corpus optimization disabled" << std::endl;
         }
         
-        // **新增**: 自动加载之前的corpus以恢复覆盖率
+        // **NEW**: Auto-load existing corpus to restore coverage
         std::string corpus_dir = config_.output_dir + "/corpus";
         if (std::filesystem::exists(corpus_dir)) {
             try {
@@ -3679,12 +3679,12 @@ void FuzzingEngine::initialize() {
     if (config_.enable_dynamic_combination && use_optimized_thompson_) {
         optimized_thompson_ = std::make_unique<OptimizedThompsonSampling>();
 
-        // 配置参数 - 大幅提升探索率
+        // Tuning: significantly increase exploration rate
         optimized_thompson_->setExplorationProbability(0.50);  // 50% exploration (was 20%)
-        optimized_thompson_->setStatsSyncFrequency(10000);     // 每10000次同步
-        optimized_thompson_->enableFastPath(false);            // 禁用fast path，强制Thompson Sampling
+        optimized_thompson_->setStatsSyncFrequency(10000);     // Sync every 10,000 iterations
+        optimized_thompson_->enableFastPath(false);            // Disable fast path; force Thompson Sampling
 
-        // 生成候选的完整pipeline组合（包含scheduler, mutation, feedback）
+        // Generate candidate full pipeline combinations (scheduler, mutation, feedback)
         std::vector<AlgorithmCombination> candidates = generateCandidateCombinations();
         optimized_thompson_->setCandidateCombinations(candidates);
 
@@ -3698,11 +3698,11 @@ void FuzzingEngine::initialize() {
         std::cout << "[FuzzingEngine] ================================================" << std::endl;
     }
 
-    // added: 初始化分层算法调度器
+    // added: Initialize tiered algorithm scheduler
     if (use_tiered_scheduler_) {
         tiered_scheduler_ = std::make_unique<TieredAlgorithmScheduler>();
 
-        // 注册所有启用的算法及其性能档案
+        // Register all enabled algorithms and their performance profiles
         // Tier 1: Ultra Fast
         tiered_scheduler_->registerAlgorithm(TieredProfiles::BITFLIP);
         tiered_scheduler_->registerAlgorithm(TieredProfiles::MAGIC_BYTE);
@@ -3719,14 +3719,14 @@ void FuzzingEngine::initialize() {
         tiered_scheduler_->registerAlgorithm(TieredProfiles::BLOCK);
         tiered_scheduler_->registerAlgorithm(TieredProfiles::CHUNK_BASED);
         tiered_scheduler_->registerAlgorithm(TieredProfiles::CMPLOG);
-        tiered_scheduler_->registerAlgorithm(TieredProfiles::REDQUEEN);  // 移至Tier2
-        tiered_scheduler_->registerAlgorithm(TieredProfiles::FORMAT_AWARE);  // 保护结构化格式
+        tiered_scheduler_->registerAlgorithm(TieredProfiles::REDQUEEN);  // Moved to Tier 2
+        tiered_scheduler_->registerAlgorithm(TieredProfiles::FORMAT_AWARE);  // Protect structured formats
         // Tier 3: Medium
         tiered_scheduler_->registerAlgorithm(TieredProfiles::SMART_DICTIONARY);
         // Archived: CLASSIC_LIBFUZZER, AFL_PLUS_PLUS
 
-        // 设置目标执行时间
-        tiered_scheduler_->setTargetExecutionTime(0.8);  // 目标: 平均0.8ms/exec
+        // Set target execution time
+        tiered_scheduler_->setTargetExecutionTime(0.8);  // Target: avg 0.8ms/exec
 
         std::cout << "[FuzzingEngine] ===== Tiered Algorithm Scheduler Enabled =====" << std::endl;
         std::cout << "[FuzzingEngine] Tier 1 (Ultra Fast <0.5ms): 73% probability" << std::endl;
@@ -3740,20 +3740,20 @@ void FuzzingEngine::initialize() {
         std::cout << "[FuzzingEngine] ================================================" << std::endl;
     }
 
-    // 创建输出目录
+    // Create output directories
     std::filesystem::create_directories(config_.output_dir);
     std::filesystem::create_directories(config_.output_dir + "/corpus");
     std::filesystem::create_directories(config_.output_dir + "/crashes");
     
-    // 启动性能监控
+    // Start performance monitoring
     if (config_.enable_performance_monitoring && performance_monitor_) {
         performance_monitor_->startMonitoring();
     }
     
-    // 初始化统计
+    // Initialize stats
     stats_.start_time = std::chrono::system_clock::now();
     
-    // 启动AFL++风格的自动corpus优化（仅在非严格模式且启用corpus优化时）
+    // Start AFL++-style automatic corpus optimization (non-strict mode, if enabled)
     if (corpus_manager_ && !config_.strict_algorithm_isolation &&
         config_.corpus_optimization_enabled) {
         corpus_manager_->startAutoOptimization();
@@ -3764,7 +3764,7 @@ void FuzzingEngine::initialize() {
         std::cout << "[FuzzingEngine] AFL++ corpus auto-optimization disabled" << std::endl;
     }
     
-    // 验证严格模式算法隔离
+    // Validate strict-mode algorithm isolation
     if (config_.strict_algorithm_isolation) {
         bool validation_passed = validateStrictAlgorithmIsolation();
         if (!validation_passed) {
@@ -3772,19 +3772,19 @@ void FuzzingEngine::initialize() {
             std::cerr << "[ERROR] This may compromise the fairness of ablation experiments" << std::endl;
         }
 
-        // 记录算法使用情况用于调试
+        // Log algorithm usage for debugging
         logAlgorithmUsage();
     }
 
-    // 初始化专职线程引擎（如果启用）
+    // Initialize specialized-thread engine (if enabled)
     std::cout << "[DEBUG] config_.use_specialized_threads = " << config_.use_specialized_threads << std::endl;
     if (config_.use_specialized_threads) {
         std::cout << "[FuzzingEngine] ===== INITIALIZING SPECIALIZED THREAD ENGINE =====" << std::endl;
         use_specialized_threads_ = true;
 
-        // 创建执行回调 - 封装变异+执行+保存的完整流程
+        // Create execution callback - wraps the full mutate + execute + save pipeline
         auto execution_callback = [this](const std::vector<uint8_t>& seed, const AlgorithmCombination& combination) -> ExecutionResult {
-            // ===== [PERF] 细粒度性能诊断 - 可选启用 =====
+            // ===== [PERF] Fine-grained performance breakdown (optional) =====
             #ifdef ENABLE_DETAILED_PERF_BREAKDOWN
             thread_local struct {
                 size_t count = 0;
@@ -3800,7 +3800,7 @@ void FuzzingEngine::initialize() {
             auto callback_start = std::chrono::high_resolution_clock::now();
             #endif
 
-            // 创建线程本地上下文
+            // Create thread-local context
             #ifdef ENABLE_DETAILED_PERF_BREAKDOWN
             auto t_context_start = std::chrono::high_resolution_clock::now();
             #endif
@@ -3824,9 +3824,9 @@ void FuzzingEngine::initialize() {
             detailed_stats.context_creation_us += std::chrono::duration_cast<std::chrono::microseconds>(t_context_end - t_context_start).count();
             #endif
 
-            // 0. 微型确定性预热阶段（每个种子一次，严格限额）
-            // [PERF] 默认禁用，因为会导致4倍性能损失
-            // 设置环境变量 TRIOFUZZ_ENABLE_WARMUP=1 可以启用
+            // 0. Micro deterministic warmup stage (once per seed, strict budget)
+            // [PERF] Disabled by default because it causes ~4x slowdown
+            // Set TRIOFUZZ_ENABLE_WARMUP=1 to enable
             static const bool enable_warmup = (std::getenv("TRIOFUZZ_ENABLE_WARMUP") != nullptr);
             if (enable_warmup) {
                 auto computeSeedSig = [](const std::vector<uint8_t>& s) -> uint64_t {
@@ -3850,7 +3850,7 @@ void FuzzingEngine::initialize() {
                     if (warm_set_guard++ > 4096) { warmed_up_seeds.clear(); warm_set_guard = 0; }
                     warmed_up_seeds.insert(sig);
 
-                    // 最多三个极小候选
+                    // At most three tiny candidates
                     std::array<std::vector<uint8_t>, 3> candidates;
                     for (auto& c : candidates) c = seed;
 
@@ -3891,7 +3891,7 @@ void FuzzingEngine::initialize() {
                         r.coverage.new_edges.push_back(coverage_hash);
                         if (corpus_manager_) {
                             Seed ns; ns.data = data; ns.coverage = CoverageInfo{}; ns.coverage.total_edges = r.coverage.total_edges;
-                            ns.coverage.new_edges.push_back(coverage_hash);  // 设置 new_edges 以便磁盘保存
+                            ns.coverage.new_edges.push_back(coverage_hash);  // Set new_edges so it can be persisted to disk
                             ns.created_time = std::chrono::system_clock::now(); ns.generation = 1; ns.energy = 1.3;
                             corpus_manager_->addSeed(std::move(ns));
                             stats_.new_coverage_found.fetch_add(1, std::memory_order_relaxed);
@@ -3906,7 +3906,7 @@ void FuzzingEngine::initialize() {
                 }
             }
 
-            // 1. 应用算法组合进行变异
+            // 1. Apply the algorithm combination to mutate
             #ifdef ENABLE_DETAILED_PERF_BREAKDOWN
             auto t0 = std::chrono::high_resolution_clock::now();
             #endif
@@ -3916,7 +3916,7 @@ void FuzzingEngine::initialize() {
             detailed_stats.mutation_us += std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
             #endif
 
-	            // 2. 执行变异后的输入
+	            // 2. Execute the mutated input
 	            // CmpLog sampling: enable trace-cmp recording only for a subset of executions to
 	            // bound overhead, but collect aggressively for analysis-style combinations.
 	            thread_local uint64_t tls_exec_counter = 0;
@@ -3945,7 +3945,7 @@ void FuzzingEngine::initialize() {
 	            detailed_stats.execution_us += std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
 	            #endif
 
-            // 3. [PERF-FIX] 使用Inline 8-bit counters进行快速无锁覆盖率检查
+            // 3. [PERF-FIX] Fast lock-free coverage check using inline 8-bit counters
             #ifdef ENABLE_DETAILED_PERF_BREAKDOWN
             auto t_cov_start = std::chrono::high_resolution_clock::now();
             #endif
@@ -3988,7 +3988,7 @@ void FuzzingEngine::initialize() {
                     new_seed.data = mutated_input;
                     new_seed.coverage = CoverageInfo{};
                     new_seed.coverage.total_edges = afl_cov.getTotalEdges();
-                    new_seed.coverage.new_edges.push_back(coverage_hash);  // 设置 new_edges 以便磁盘保存
+                    new_seed.coverage.new_edges.push_back(coverage_hash);  // Set new_edges so it can be persisted to disk
                     new_seed.created_time = std::chrono::system_clock::now();
                     new_seed.generation = 1;
                     new_seed.energy = 1.3;  // Fixed energy bonus for new coverage
@@ -4012,12 +4012,12 @@ void FuzzingEngine::initialize() {
             }
 
             #ifdef ENABLE_DETAILED_PERF_BREAKDOWN
-            // 计算总开销
+            // Compute total overhead
             auto callback_end = std::chrono::high_resolution_clock::now();
             detailed_stats.total_overhead_us += std::chrono::duration_cast<std::chrono::microseconds>(callback_end - callback_start).count();
             detailed_stats.count++;
 
-            // 每5秒打印一次细粒度统计
+            // Print fine-grained stats every 5 seconds
             auto now = std::chrono::steady_clock::now();
             if (std::chrono::duration_cast<std::chrono::seconds>(now - detailed_stats.last_print).count() >= 5) {
                 double avg_context = detailed_stats.context_creation_us / (double)detailed_stats.count / 1000.0;
@@ -4043,25 +4043,25 @@ void FuzzingEngine::initialize() {
             }
             #endif
 
-            // 4. 更新统计
+            // 4. Update stats
             stats_.total_executions.fetch_add(1, std::memory_order_relaxed);
 
             return result;
         };
 
-        // 创建覆盖率回调 - 返回当前覆盖的边数
+        // Create coverage callback: returns current covered edge count
         // triofuzz-Mini: Use AFLCompatibleCoverage for coverage tracking
         auto coverage_callback = []() -> size_t {
             auto& afl_cov = triofuzz::AFLCompatibleCoverage::getInstance();
-            return afl_cov.getTotalEdges();  // 返回已覆盖的unique edges
+            return afl_cov.getTotalEdges();  // Return number of unique covered edges
         };
 
         specialized_engine_ = std::make_unique<SpecializedThreadEngine>(
             config_,
             corpus_manager_.get(),
-            nullptr,  // coverage_tracker - 暂时不使用
-            nullptr,  // execution_tracer - 暂时不使用
-            nullptr,  // executor - 暂时不使用
+            nullptr,  // coverage_tracker - not used for now
+            nullptr,  // execution_tracer - not used for now
+            nullptr,  // executor - not used for now
             execution_callback,
             coverage_callback
         );
@@ -4077,13 +4077,13 @@ void FuzzingEngine::start() {
         return;
     }
 
-    // 如果使用专职线程架构，使用专门的启动逻辑
+    // If using specialized-thread architecture, use the dedicated start logic
     if (use_specialized_threads_ && specialized_engine_) {
         std::cout << "[FuzzingEngine] Starting with specialized thread architecture..." << std::endl;
         global_start_time_ = std::chrono::steady_clock::now();
         running_ = true;
 
-        // 启动统计/Checkpoint线程（专职线程模式下默认不会启动）
+        // Start stats/checkpoint thread (not started by default in specialized-thread mode)
         stats_running_ = true;
         stats_thread_ = std::thread([this]() {
             auto last_update = std::chrono::steady_clock::now();
@@ -4095,7 +4095,7 @@ void FuzzingEngine::start() {
                 // Check if we should update stats
                 auto now = std::chrono::steady_clock::now();
                 if (std::chrono::duration_cast<std::chrono::seconds>(now - last_update) >= config_.stats_interval) {
-                    if (stats_running_.load()) {  // 双重检查避免关闭时的竞态条件
+                    if (stats_running_.load()) {  // Double-check to avoid a shutdown race
                         updateStats();
 
                         if (on_stats_update_) {
@@ -4111,7 +4111,7 @@ void FuzzingEngine::start() {
         });
 
         specialized_engine_->start();
-        return;  // 不需要启动传统的工作线程
+        return;  // No need to start the traditional worker threads
     }
 
     std::cout << "Starting Fuzzing Engine with " << config_.thread_count << " threads..." << std::endl;
@@ -4119,14 +4119,14 @@ void FuzzingEngine::start() {
     running_ = true;
     global_start_time_ = std::chrono::steady_clock::now();
 
-    // 启动工作线程
+    // Start worker threads
     for (size_t i = 0; i < config_.thread_count; ++i) {
         worker_threads_.emplace_back([this, i]() {
             workerLoop(i);
         });
     }
     
-    // 启动统计线程 - 使用成员变量而不是 detach
+    // Start stats thread (store it as a member instead of detaching)
     stats_running_ = true;
     stats_thread_ = std::thread([this]() {
         auto last_update = std::chrono::steady_clock::now();
@@ -4138,7 +4138,7 @@ void FuzzingEngine::start() {
             // Check if we should update stats
             auto now = std::chrono::steady_clock::now();
             if (std::chrono::duration_cast<std::chrono::seconds>(now - last_update) >= config_.stats_interval) {
-                if (stats_running_.load()) {  // 双重检查避免关闭时的竞态条件
+                if (stats_running_.load()) {  // Double-check to avoid a shutdown race
                     updateStats();
 
                     if (on_stats_update_) {
@@ -4159,12 +4159,12 @@ void FuzzingEngine::stop() {
         return;
     }
 
-    // 如果使用专职线程架构，使用专门的停止逻辑
+    // If using specialized-thread architecture, use the dedicated stop logic
     if (use_specialized_threads_ && specialized_engine_) {
         std::cout << "[FuzzingEngine] Stopping specialized thread engine..." << std::endl;
         stats_running_ = false;
         if (stats_thread_.joinable()) {
-            // 与标准路径保持一致，避免在stop中阻塞
+            // Match the standard path and avoid blocking in stop()
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
             std::cout << "[INFO] Detaching stats thread" << std::endl;
             stats_thread_.detach();
@@ -4211,14 +4211,14 @@ void FuzzingEngine::stop() {
     std::cout << "[DEBUG] Clearing worker threads..." << std::endl;
     worker_threads_.clear();
 
-    // 修复: 在清理worker_threads_后,添加额外的等待时间
-    // 确保所有detached线程真正完成并停止访问共享资源
+    // Fix: add an extra wait after clearing worker_threads_
+    // Ensure detached threads actually finish and stop touching shared resources
     std::cout << "[DEBUG] Waiting for all threads to fully terminate..." << std::endl;
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
     std::cout << "[DEBUG] All threads terminated" << std::endl;
 
-    // 修复: 提前释放optimized_thompson_,在任何其他组件cleanup之前
-    // 这样可以确保没有代码还在使用它
+    // Fix: release optimized_thompson_ early, before cleaning up other components
+    // This ensures nothing is still using it
     if (optimized_thompson_) {
         std::cout << "[DEBUG] Releasing OptimizedThompsonSampling..." << std::endl;
         optimized_thompson_.reset();
@@ -4241,14 +4241,14 @@ void FuzzingEngine::stop() {
         std::cout << "[DEBUG] Skipping corpus save due to forced stop" << std::endl;
     }
 
-    // added: 打印优化统计信息 (添加安全检查)
+    // added: print optimization stats (with safety checks)
     try {
         printOptimizationStats();
     } catch (const std::exception& e) {
         std::cout << "[WARNING] Failed to print optimization stats: " << e.what() << std::endl;
     }
 
-    // 打印最终的分层调度器统计
+    // Print final tiered scheduler statistics
     if (use_tiered_scheduler_ && tiered_scheduler_ && tiered_scheduler_->getTotalExecutions() > 0) {
         std::cout << "\n" << std::string(80, '=') << std::endl;
         std::cout << tiered_scheduler_->getStatisticsReport() << std::endl;
@@ -4261,23 +4261,23 @@ void FuzzingEngine::stop() {
 void FuzzingEngine::shutdown() {
     std::cout << "Shutting down Fuzzing Engine..." << std::endl;
 
-    // 停止性能监控
+    // Stop performance monitoring
     if (performance_monitor_) {
         performance_monitor_->stopMonitoring();
     }
 
-    // 生成最终报告
+    // Generate final report
     if (performance_monitor_) {
         auto report = performance_monitor_->generateReport();
-        // 保存报告
+        // Save report
     }
 }
 
 void FuzzingEngine::registerAlgorithm(const std::string& name, AlgorithmFactory factory) {
-    // 这里需要更复杂的注册逻辑，根据算法类型注册到不同的类别
+    // TODO: More complex registration logic is needed here (register by algorithm type)
     std::cout << "Registering algorithm: " << name << std::endl;
     
-    // 简单实现：将工厂函数存储在算法注册表中
+    // Simple implementation: store the factory in the algorithm registry
     if (algorithm_registry_) {
         algorithm_registry_->registerAlgorithm(name, std::move(factory));
     }
@@ -4289,8 +4289,8 @@ void FuzzingEngine::addSeed(const std::vector<uint8_t>& data) {
     seed.created_time = std::chrono::system_clock::now();
     seed.energy = 1.0;
     
-    // 获取当前覆盖率信息（注释掉，因为没有global_coverage_成员）
-    // 种子的覆盖率信息应该在执行后由executeInput设置
+    // Current coverage info would go here (commented out: no global_coverage_ member)
+    // Seed coverage should be populated by executeInput after execution
     // if (global_coverage_) {
     //     seed.coverage = global_coverage_->getCurrentCoverage();
     // }
@@ -4457,7 +4457,7 @@ void FuzzingEngine::disableAlgorithm(const std::string& name) {
 
 std::vector<std::string> FuzzingEngine::getEnabledAlgorithms() const {
     if (algorithm_registry_) {
-        // 获取所有算法，然后过滤出启用的算法
+        // Get all algorithms, then filter down to the enabled ones
         std::vector<std::string> all_algorithms = algorithm_registry_->getAllAlgorithms();
         std::vector<std::string> enabled_algorithms;
         
@@ -4472,11 +4472,11 @@ std::vector<std::string> FuzzingEngine::getEnabledAlgorithms() const {
 }
 
 std::vector<AlgorithmCombination> FuzzingEngine::getActiveCombinations() const {
-    // 简化实现
+    // Simplified implementation
     return {};
 }
 
-// TUI支持方法实现
+// TUI support method implementations
 size_t FuzzingEngine::getCorpusSize() const {
     if (corpus_manager_) {
         return corpus_manager_->getCurrentCorpusSize();
@@ -4485,15 +4485,15 @@ size_t FuzzingEngine::getCorpusSize() const {
 }
 
 std::optional<AlgorithmCombination> FuzzingEngine::getCurrentAlgorithmCombination() const {
-    // 从batch_selector获取当前算法组合
+    // Get current algorithm combination from batch_selector
     if (batch_selector_) {
-        // 从batch_selector获取当前组合
-        // 这里需要batch_selector提供接口，暂时创建默认组合
+        // Get current combination from batch_selector
+        // TODO: batch_selector should provide an API; for now, construct a default combination
         AlgorithmCombination combo;
 
-        // 从统计信息推断当前最常用的算法
+        // Infer the currently most-used algorithm from stats
         if (!stats_.algorithm_usage.empty()) {
-            // 找出使用最多的算法
+            // Find the most-used algorithm
             auto max_it = std::max_element(stats_.algorithm_usage.begin(),
                                           stats_.algorithm_usage.end(),
                                           [](const auto& a, const auto& b) {
@@ -4506,7 +4506,7 @@ std::optional<AlgorithmCombination> FuzzingEngine::getCurrentAlgorithmCombinatio
             }
         }
 
-        // 默认组合 - 使用 AlgorithmConfig 前3个算法
+        // Default combination: use the first 3 algorithms from AlgorithmConfig
         combo.algorithm_names = {
             AlgoConfig::ENABLED_MUTATIONS[0],
             AlgoConfig::ENABLED_MUTATIONS.size() > 1 ? AlgoConfig::ENABLED_MUTATIONS[1] : AlgoConfig::ENABLED_MUTATIONS[0],
@@ -4521,19 +4521,19 @@ std::optional<AlgorithmCombination> FuzzingEngine::getCurrentAlgorithmCombinatio
 std::optional<FuzzingEngine::BatchInfo> FuzzingEngine::getBatchInfo() const {
     BatchInfo info;
 
-    // 从batch_executor获取实际批次信息（如果有）
+    // Get actual batch info from batch_executor (if available)
     if (batch_executor_) {
-        // 需要batch_executor提供接口
-        // 暂时使用估算值
+        // TODO: batch_executor needs to provide an API
+        // For now, use estimated values
     }
 
-    // 计算批次信息
+    // Compute batch info
     const size_t batch_size = 500;
     info.batch_size = batch_size;
     info.executions_in_batch = stats_.total_executions.load() % batch_size;
     info.total_switches = stats_.total_executions.load() / batch_size;
 
-    // 计算平均奖励（基于覆盖率增长）
+    // Compute average reward (based on coverage growth)
     if (stats_.new_coverage_found.load() > 0) {
         info.average_reward = static_cast<double>(stats_.new_coverage_found.load()) /
                              static_cast<double>(stats_.total_executions.load() + 1);
@@ -4545,7 +4545,7 @@ std::optional<FuzzingEngine::BatchInfo> FuzzingEngine::getBatchInfo() const {
 }
 
 std::map<std::string, size_t> FuzzingEngine::getAlgorithmUsageHistory() const {
-    // 返回算法使用统计
+    // Return algorithm usage stats
     return stats_.algorithm_usage;
 }
 
@@ -4556,18 +4556,18 @@ void FuzzingEngine::loadInitialSeeds(const std::string& dir) {
     
     size_t loaded = 0;
     
-    // 使用recursive_directory_iterator递归遍历所有子目录
+    // Recursively traverse subdirectories with recursive_directory_iterator
     try {
         for (const auto& entry : std::filesystem::recursive_directory_iterator(dir)) {
         if (entry.is_regular_file()) {
-            // 支持所有文件类型作为种子输入
-            // 不再过滤任何文件扩展名，让fuzzer自行处理所有类型的输入
+            // Treat all file types as seed inputs
+            // Do not filter by extension; let the fuzzer handle all input types
 
             try {
                 addSeedFromFile(entry.path().string());
                 loaded++;
                     
-                    if (loaded <= 10) {  // 只打印前10个文件的路径，避免输出过多
+                    if (loaded <= 10) {  // Print only the first 10 paths to avoid excessive output
                         std::cout << "[INFO] Loading seed: " << entry.path().string() << std::endl;
                     } else if (loaded == 11) {
                         std::cout << "[INFO] Loading more seeds..." << std::endl;
@@ -4583,14 +4583,14 @@ void FuzzingEngine::loadInitialSeeds(const std::string& dir) {
     
     std::cout << "Loaded " << loaded << " initial seeds" << std::endl;
 
-    // 执行所有初始种子来收集初始覆盖率 (seed calibration / dry-run phase)
-    // 直接从目录读取执行，避免corpus的选择逻辑导致重复
+    // Execute all initial seeds to collect baseline coverage (seed calibration / dry-run phase)
+    // Execute directly from the directory to avoid corpus selection logic causing duplicates
     if (loaded > 0 && std::filesystem::exists(dir)) {
         std::cout << "[Calibration] Executing initial seeds to collect baseline coverage..." << std::endl;
 
         std::vector<std::filesystem::path> seed_files;
 
-        // 收集所有种子文件路径
+        // Collect all seed file paths
         try {
             for (const auto& entry : std::filesystem::recursive_directory_iterator(dir)) {
                 if (entry.is_regular_file()) {
@@ -4606,7 +4606,7 @@ void FuzzingEngine::loadInitialSeeds(const std::string& dir) {
 
         for (const auto& seed_path : seed_files) {
             try {
-                // 读取种子文件
+                // Read seed file
                 std::ifstream file(seed_path, std::ios::binary);
                 if (!file) continue;
 
@@ -4628,7 +4628,7 @@ void FuzzingEngine::loadInitialSeeds(const std::string& dir) {
 
                 ExecutionResult result = executeInput(exec_data);
 
-                // Debug: 打印前几个种子的覆盖率信息
+                // Debug: print coverage info for the first few seeds
                 if (executed < 3) {
                     std::cout << "[DEBUG] Seed #" << executed << " (" << seed_path.filename() << ") coverage:" << std::endl;
                     std::cout << "  covered_edges.size() = " << result.coverage.covered_edges.size() << std::endl;
@@ -4641,7 +4641,7 @@ void FuzzingEngine::loadInitialSeeds(const std::string& dir) {
                     std::cout << std::endl;
                 }
 
-                // 更新全局覆盖率 - 使用covered_edges作为new_edges
+                // Update global coverage: use covered_edges as new_edges
                 if (coverage_collector_) {
                     if (!result.coverage.covered_edges.empty()) {
                         CoverageInfo calibration_coverage = result.coverage;
@@ -4652,7 +4652,7 @@ void FuzzingEngine::loadInitialSeeds(const std::string& dir) {
 
                 executed++;
 
-                // 每500个种子打印进度
+                // Print progress every 500 seeds
                 if (executed % 500 == 0 || executed == total_seeds) {
                     size_t current_edges = coverage_collector_ ? coverage_collector_->getUniqueEdgesCount() : 0;
                     std::cout << "[Calibration] Executed " << executed << "/" << total_seeds
@@ -4664,7 +4664,7 @@ void FuzzingEngine::loadInitialSeeds(const std::string& dir) {
             }
         }
 
-        // 获取覆盖率统计
+        // Get coverage stats
         size_t total_edges = coverage_collector_ ? coverage_collector_->getUniqueEdgesCount() : 0;
 
         std::cout << "[Calibration] Completed! Executed " << executed << " seeds" << std::endl;
@@ -4742,7 +4742,7 @@ void FuzzingEngine::workerLoop(size_t thread_id) {
                 }
             }
             
-            // 第0层: Select complete pipeline combination (Scheduler + Mutation + Feedback)
+            // Layer 0: Select complete pipeline combination (Scheduler + Mutation + Feedback)
             AlgorithmCombination combination;
             if (use_fixed_combination) {
                 combination = fixed_combination;
@@ -4754,16 +4754,16 @@ void FuzzingEngine::workerLoop(size_t thread_id) {
                 }
             }
 
-            // 第1层: Select seed (using scheduler if specified in combination)
+            // Layer 1: Select seed (using scheduler if specified in combination)
             Seed seed = selectSeedWithScheduler(combination);
             seed.execution_count++;  // Track execution count for power scheduling
 
-            // 第2层: Apply mutation algorithm combination
+            // Layer 2: Apply mutation algorithm combination
             std::vector<uint8_t> mutated_input = applyAlgorithmCombination(
                 seed.data, combination, local_context
             );
 
-            // 第3层: Execute mutated input
+            // Layer 3: Execute mutated input
             // CmpLog sampling: enable trace-cmp recording only for a subset of executions to
             // bound overhead, but collect aggressively for analysis-style combinations.
             thread_local uint64_t tls_exec_counter = 0;
@@ -4785,7 +4785,7 @@ void FuzzingEngine::workerLoop(size_t thread_id) {
 
             ExecutionResult result = executeInput(mutated_input);
 
-            // 第4层: Process result with feedback analyzer (if specified in combination)
+            // Layer 4: Process result with feedback analyzer (if specified in combination)
             if (!combination.feedback_analyzer.empty()) {
                 processFeedbackWithAnalyzer(result, seed, combination);
             } else {
@@ -4829,55 +4829,55 @@ void FuzzingEngine::workerLoop(size_t thread_id) {
 }
 
 void FuzzingEngine::fuzzingIteration(ThreadLocalContext& local_context) {
-    // 根据严格模式调整corpus更新策略
+    // Adjust corpus update strategy based on strict mode
     static size_t corpus_update_counter = 0;
     
-    // 严格模式下进一步简化corpus处理
+    // Further simplify corpus handling in strict mode
     if (config_.strict_algorithm_isolation && config_.disable_system_algorithms) {
-        // LibFuzzer-like mode: 最小化corpus交互，每50000次迭代才更新一次
+        // LibFuzzer-like mode: minimize corpus interactions; update only every 50,000 iterations
         if (++corpus_update_counter % 50000 == 0) {
             try {
                 auto corpus_data = corpus_manager_->getAllCorpusData();
-                local_context.setCorpusSafe(corpus_data);     // 只更新本地上下文
+                local_context.setCorpusSafe(corpus_data);     // Update only the local context
             } catch (const std::exception& e) {
-                // 忽略corpus更新错误，不影响主流程
+                // Ignore corpus update errors; do not affect the main loop
             }
         }
     } else {
-        // 标准严格模式或正常模式：每10000次迭代更新
+        // Standard strict mode or normal mode: update every 10,000 iterations
         if (++corpus_update_counter % 10000 == 0) {
             try {
                 auto corpus_data = corpus_manager_->getAllCorpusData();
-                global_context_->setCorpusSafe(corpus_data);  // 使用线程安全的方法
-                local_context.setCorpusSafe(corpus_data);     // 使用线程安全的方法
+                global_context_->setCorpusSafe(corpus_data);  // Use thread-safe methods
+                local_context.setCorpusSafe(corpus_data);     // Use thread-safe methods
             } catch (const std::exception& e) {
-                // 忽略corpus更新错误，不影响主流程
+                // Ignore corpus update errors; do not affect the main loop
             }
         }
     }
     
-    // 1. 种子选择 - 根据严格模式采用不同策略
+    // 1. Seed selection: use different strategies based on strict mode
     auto seed_opt = std::optional<Seed>{};
     
     if (config_.strict_algorithm_isolation && config_.disable_system_algorithms) {
-        // LibFuzzer-like mode: 使用最简单的随机种子选择，不使用智能策略
-        seed_opt = corpus_manager_->getRandomSeed(); // 完全随机选择
+        // LibFuzzer-like mode: use plain random seed selection (no smart strategy)
+        seed_opt = corpus_manager_->getRandomSeed(); // fully random
     } else {
-        // 标准模式：使用智能种子选择
+        // Standard mode: use smart seed selection
         seed_opt = corpus_manager_->getNextSeed();
     }
     
     if (!seed_opt.has_value()) {
-        // 简化随机种子生成，减少复杂的策略选择
+        // Simplified random seed generation to reduce strategy overhead
         static thread_local std::mt19937 fast_gen(std::random_device{}());
-        static thread_local std::uniform_int_distribution<size_t> size_dist(4, 256); // 固定合理范围
+        static thread_local std::uniform_int_distribution<size_t> size_dist(4, 256); // Fixed reasonable range
         static thread_local std::uniform_int_distribution<uint8_t> byte_dist(0, 255);
         
         Seed random_seed;
         size_t seed_size = size_dist(fast_gen);
-        random_seed.data.reserve(seed_size); // 预分配避免重复分配
+        random_seed.data.reserve(seed_size); // Pre-allocate to avoid repeated allocations
         
-        // 直接生成随机字节，移除复杂的模式选择
+        // Generate random bytes directly; avoid complex pattern selection
         for (size_t i = 0; i < seed_size; ++i) {
             random_seed.data.push_back(byte_dist(fast_gen));
         }
@@ -4886,18 +4886,18 @@ void FuzzingEngine::fuzzingIteration(ThreadLocalContext& local_context) {
         random_seed.created_time = std::chrono::system_clock::now();
         seed_opt = random_seed;
         
-        // 异步添加到语料库，不阻塞主流程
+        // Add to corpus asynchronously; don't block the main loop
         corpus_manager_->addSeed(std::move(random_seed));
     }
     
     const Seed& seed = seed_opt.value();
     
-    // 2. 快速获取算法组合 - 减少函数调用开销
+    // 2. Fetch algorithm combination quickly to reduce call overhead
     AlgorithmCombination combination;
     if (batch_selector_ && config_.enable_dynamic_combination) {
         combination = batch_selector_->getCurrentCombination();
     } else {
-        // 使用缓存的默认组合，避免重复创建
+        // Use a cached default combination to avoid repeated construction
         static const AlgorithmCombination default_combo = []() {
             AlgorithmCombination combo;
             combo.algorithm_names = {"havoc"};
@@ -4907,29 +4907,29 @@ void FuzzingEngine::fuzzingIteration(ThreadLocalContext& local_context) {
         combination = default_combo;
     }
     
-    // 3. 直接在原数据上变异，减少内存拷贝
+    // 3. Mutate starting from the original data to reduce memory copies
     std::vector<uint8_t> mutated_input;
-    mutated_input.reserve(seed.data.size() + 64); // 预留变异空间
-    mutated_input = seed.data; // 只做一次拷贝
+    mutated_input.reserve(seed.data.size() + 64); // Reserve space for mutations
+    mutated_input = seed.data; // Only one copy
     
-    // 内联应用变异，避免函数调用开销
+    // Apply mutation inline to avoid function call overhead
     mutated_input = applyAlgorithmCombination(mutated_input, combination, local_context);
     
-    // 4. 执行输入
+    // 4. Execute input
     ExecutionResult result = executeInput(mutated_input);
     
-    // 5. 结果处理 - 根据严格模式选择处理方式
+    // 5. Result handling: choose path based on strict mode
     if (config_.strict_algorithm_isolation && config_.disable_system_algorithms) {
-        // LibFuzzer-like mode: 最简化的结果处理，只关注新覆盖率
+        // LibFuzzer-like mode: minimal result handling; focus only on new coverage
         if (result.coverage.hasNewCoverage() && !result.coverage.new_edges.empty()) {
-            // 只在发现新覆盖率时添加种子，不进行复杂的分析
+            // Add a seed only when new coverage is found; skip expensive analysis
             Seed new_seed;
-            new_seed.data = mutated_input;  // 修复：使用变异后的输入而不是原始种子
+            new_seed.data = mutated_input;  // Fix: use mutated input instead of the original seed
             new_seed.coverage = result.coverage;
             new_seed.created_time = std::chrono::system_clock::now();
             new_seed.generation = seed.generation + 1;
             
-            // 动态计算能量（改进：基于覆盖率贡献）
+            // Compute energy dynamically (improvement: based on coverage contribution)
             double coverage_bonus = result.coverage.new_edges.size() * 0.2;
             double gain_bonus = result.coverage.coverage_gain * 10.0;
             new_seed.energy = 1.0 + coverage_bonus + gain_bonus;
@@ -4941,70 +4941,70 @@ void FuzzingEngine::fuzzingIteration(ThreadLocalContext& local_context) {
             stats_.new_coverage_found.fetch_add(1, std::memory_order_relaxed);
         }
     } else {
-        // 标准模式：使用完整的结果处理
+        // Standard mode: use full result handling
         processResultFast(result, seed, combination);
     }
     
-    // 动态更新种子能量（改进：基于执行效果）
+    // Dynamically update seed energy (improvement: based on execution outcome)
     if (corpus_manager_ && !config_.strict_algorithm_isolation) {
         double new_energy = seed.energy;
         
         if (result.coverage.hasNewCoverage()) {
-            new_energy *= 2.0;  // 发现新覆盖率，能量翻倍
+            new_energy *= 2.0;  // New coverage found: double energy
         } else if (result.status == ExecutionResult::Status::Crash) {
-            new_energy *= 1.5;  // 发现崩溃，能量增加50%
+            new_energy *= 1.5;  // Crash found: increase energy by 50%
         } else if (result.performance.execution_time_ms < 10) {
-            new_energy *= 1.1;  // 执行快速，能量增加10%
+            new_energy *= 1.1;  // Fast execution: increase energy by 10%
         } else {
-            new_energy *= 0.95; // 无新发现，能量衰减5%
+            new_energy *= 0.95; // No new findings: decay energy by 5%
         }
         
         corpus_manager_->updateSeedEnergy(seed, new_energy);
     }
     
-    // 6. 性能记录 - 根据模式调整频率
+    // 6. Performance logging: adjust frequency by mode
     static size_t perf_counter = 0;
     if (performance_monitor_) {
         if (config_.strict_algorithm_isolation && config_.disable_system_algorithms) {
-            // LibFuzzer-like mode: 大幅降低性能监控频率
+            // LibFuzzer-like mode: greatly reduce performance monitoring frequency
             if (++perf_counter % 1000 == 0) {
                 performance_monitor_->recordExecution(combination, result);
             }
         } else if (++perf_counter % 100 == 0) {
-            // 标准模式：正常频率
+            // Standard mode: normal frequency
             performance_monitor_->recordExecution(combination, result);
         }
     }
     
-    // 原子操作，避免锁开销
+    // Atomic operation to avoid lock overhead
     stats_.total_executions.fetch_add(1, std::memory_order_relaxed);
 }
 
 AlgorithmCombination FuzzingEngine::selectAlgorithmCombination() {
-    // added: 优先使用分层调度器 (基于开销的概率调度)
+    // added: prefer tiered scheduler (cost-aware probabilistic scheduling)
     if (use_tiered_scheduler_ && tiered_scheduler_ && tiered_scheduler_->hasAlgorithms()) {
-        // 使用分层调度器选择算法
+        // Select an algorithm via the tiered scheduler
         std::string selected_algo = tiered_scheduler_->selectAlgorithm();
 
-        // 创建单算法组合
+        // Create a single-algorithm combination
         AlgorithmCombination combo;
         combo.algorithm_names = {selected_algo};
         combo.combination_mode = "sequential";
         return combo;
     }
 
-    // added: 优先使用优化版Thompson Sampling (保留算法动态组合能力)
+    // added: prefer optimized Thompson Sampling (preserves dynamic combination)
     if (use_optimized_thompson_ && optimized_thompson_) {
         return optimized_thompson_->selectNext();
     }
 
-    // 获取当前上下文状态
+    // Get current context state
     auto coverage_info = global_context_->getCoverageInfo();
     auto performance_info = global_context_->getPerformanceInfo();
 
-    // 强制多样性检查 - 确保所有算法都有机会被执行
+    // Forced diversity check: ensure all algorithms get a chance to run
     static size_t diversity_counter = 0;
-    static constexpr size_t DIVERSITY_INTERVAL = 50; // 每50次选择强制一次多样性
+    static constexpr size_t DIVERSITY_INTERVAL = 50; // Force diversity once every 50 selections
 
     diversity_counter++;
     if (diversity_counter % DIVERSITY_INTERVAL == 0) {
@@ -5031,29 +5031,29 @@ AlgorithmCombination FuzzingEngine::selectAdaptiveCombination() {
         return default_combo;
     }
     
-    // 简化决策：直接使用高效的算法组合
+    // Simplified decision: directly use an efficient algorithm combination
     AlgorithmCombination combo;
-    combo.algorithm_names = {"havoc"};  // 直接使用最高效的算法
+    combo.algorithm_names = {"havoc"};  // Directly use the most efficient algorithm
     combo.combination_mode = "sequential";
     return combo;
 }
 
-// 生成候选组合 - 优化版：限制组合数量以提升性能
+// Generate candidate combinations (optimized): cap combination count for performance
 std::vector<AlgorithmCombination> FuzzingEngine::generateCandidateCombinations() {
     std::vector<AlgorithmCombination> candidates;
 
-    // 性能优化：根据算法数量动态调整最大组合数
+    // Performance: adjust the max combination count based on the number of algorithms
     size_t MAX_COMBINATIONS = 200;
 
-    // 获取所有可用的算法（从注册表动态获取，只获取已启用的算法）
-    // 使用 AlgoConfig::isEnabled() 进行集中式过滤
+    // Get all available algorithms (from registry, enabled only)
+    // Use AlgoConfig::isEnabled() for centralized filtering
     std::vector<std::string> available_algorithms;
 
     try {
         auto& registry = (*algorithm_registry_);
         std::vector<std::string> all_algorithms = registry.getAllAlgorithms();
         for (const auto& algo : all_algorithms) {
-            // 过滤：只添加在AlgorithmConfig中启用的算法（自动排除调度器、反馈分析器等）
+            // Filter: only include algorithms enabled in AlgorithmConfig (automatically excluding schedulers/feedback analyzers, etc.)
             if (registry.isEnabled(algo) && AlgoConfig::isEnabled(algo)) {
                 available_algorithms.push_back(algo);
             }
@@ -5062,19 +5062,19 @@ std::vector<AlgorithmCombination> FuzzingEngine::generateCandidateCombinations()
         std::cout << "[WARNING] Failed to get algorithms from registry: " << e.what() << std::endl;
     }
 
-    // 如果注册表为空，使用配置的算法
+    // If the registry is empty, fall back to configured algorithms
     if (available_algorithms.empty()) {
         available_algorithms = config_.enabled_algorithms;
     }
 
-    // 如果仍然为空，根据严格模式决定默认算法集
+    // If still empty, choose a default algorithm set based on strict mode
     if (available_algorithms.empty()) {
         if (config_.strict_algorithm_isolation) {
-            // 严格模式：只使用最基本的havoc算法作为fallback
+            // Strict mode: use only the basic havoc algorithm as a fallback
             available_algorithms = {"havoc"};
             std::cout << "[STRICT MODE] No algorithms specified, using minimal fallback: havoc only" << std::endl;
         } else {
-            // 标准模式：从注册表获取所有算法
+            // Standard mode: get all algorithms from the registry
             try {
                 auto& registry = (*algorithm_registry_);
                 available_algorithms = registry.getAllAlgorithms();
@@ -5087,12 +5087,12 @@ std::vector<AlgorithmCombination> FuzzingEngine::generateCandidateCombinations()
         }
     }
 
-    // 优化：如果算法数量很少（用户限制了算法），减少组合数量
+    // Optimization: if there are few algorithms (user-limited), reduce the number of combinations
     if (available_algorithms.size() <= 5) {
-        MAX_COMBINATIONS = 10;  // 只有5个算法时，最多10个组合
+        MAX_COMBINATIONS = 10;  // With 5 algorithms, cap at 10 combinations
     }
 
-    // 1. 添加所有单算法组合（这些是最重要的）
+    // 1. Add all single-algorithm combinations (most important)
     for (const auto& algo : available_algorithms) {
         AlgorithmCombination combo;
         combo.algorithm_names = {algo};
@@ -5101,35 +5101,35 @@ std::vector<AlgorithmCombination> FuzzingEngine::generateCandidateCombinations()
         if (candidates.size() >= MAX_COMBINATIONS) return candidates;
     }
     
-    // 2. 如果算法较少，只添加简单的双算法组合
+    // 2. If there are few algorithms, add only simple two-algorithm combinations
     if (available_algorithms.size() <= 5) {
-        // 对于有限算法，只生成最有效的2算法组合
+        // With a limited set, generate only the most effective 2-algorithm combos
         if (std::find(available_algorithms.begin(), available_algorithms.end(), "havoc") != available_algorithms.end() &&
             std::find(available_algorithms.begin(), available_algorithms.end(), "bitflip") != available_algorithms.end()) {
             AlgorithmCombination combo;
             combo.algorithm_names = {"havoc", "bitflip"};
-            combo.combination_mode = "sequential";  // sequential性能更稳定
+            combo.combination_mode = "sequential";  // sequential is more stable performance-wise
             candidates.push_back(combo);
         }
         if (candidates.size() >= MAX_COMBINATIONS) return candidates;
     } else {
-        // 算法较多时使用预定义组合
+        // With many algorithms, use predefined combinations
         static const std::vector<std::pair<std::vector<std::string>, std::string>> predefined_combos = {
-            // 经典组合
+            // Classic combos
             {{"havoc", "bitflip"}, "sequential"},
             {{"havoc", "arithmetic"}, "sequential"},
-            // {{"afl_plus_plus", "rare_branch"}, "sequential"}, // rare_branch已归档
-            // CmpLog组合 - 解决比较约束 - 已归档（极慢）
+            // {{"afl_plus_plus", "rare_branch"}, "sequential"}, // rare_branch archived
+            // CmpLog combos: solve comparison constraints (archived: extremely slow)
             // {{"cmplog", "havoc"}, "sequential"},
-            // {{"cmplog", "gradient_descent"}, "sequential"}, // gradient_descent已归档
+            // {{"cmplog", "gradient_descent"}, "sequential"}, // gradient_descent archived
             // {{"cmplog", "arithmetic"}, "sequential"},
-            // 稀有分支优化 - 已归档
-            // {{"rare_branch", "rare_edge_scheduler"}, "sequential"}, // rare_edge_scheduler已归档
-            // 快速探索（改用sequential以提升性能）
+            // Rare-branch optimization (archived)
+            // {{"rare_branch", "rare_edge_scheduler"}, "sequential"}, // rare_edge_scheduler archived
+            // Fast exploration (use sequential for performance)
             {{"havoc", "splice"}, "sequential"},
             {{"bitflip", "arithmetic"}, "sequential"},
-            // 梯度引导
-            // {{"gradient_descent", "havoc"}, "sequential"}, // gradient_descent已归档
+            // Gradient-guided
+            // {{"gradient_descent", "havoc"}, "sequential"}, // gradient_descent archived
         };
 
         for (const auto& [algo_names, mode] : predefined_combos) {
@@ -5150,14 +5150,14 @@ std::vector<AlgorithmCombination> FuzzingEngine::generateCandidateCombinations()
         }
     }
 
-    // 3. 基于当前状态的自适应组合（简化版）
+    // 3. Adaptive combinations based on current state (simplified)
     auto coverage_info = global_context_->getCoverageInfo();
     if (coverage_info.has_value() && candidates.size() < MAX_COMBINATIONS) {
         double coverage_gain = coverage_info->coverage_gain;
 
-        // 如果覆盖率停滞，添加激进策略
+        // If coverage stalls, add a more aggressive strategy
         if (coverage_gain < 0.001) {
-            // 尝试添加突破性算法（使用 AlgorithmConfig 前2个算法）
+            // Try adding "breakthrough" algorithms (using AlgorithmConfig defaults)
             std::vector<std::string> breakthrough_algos;
             if (AlgoConfig::ENABLED_MUTATIONS.size() >= 2) {
                 breakthrough_algos = {AlgoConfig::ENABLED_MUTATIONS[0], AlgoConfig::ENABLED_MUTATIONS[3]};  // havoc, splice
@@ -5176,7 +5176,7 @@ std::vector<AlgorithmCombination> FuzzingEngine::generateCandidateCombinations()
         }
     }
 
-    // 确保至少有一个候选组合
+    // Ensure at least one candidate combination exists
     if (candidates.empty()) {
         AlgorithmCombination default_combo;
         default_combo.algorithm_names = {"havoc"};
@@ -5184,9 +5184,9 @@ std::vector<AlgorithmCombination> FuzzingEngine::generateCandidateCombinations()
         candidates.push_back(default_combo);
     }
 
-    // 为每个组合分配scheduler和feedback analyzer（构建完整的fuzzing pipeline）
+    // Assign a scheduler and feedback analyzer to each combination (build a full fuzzing pipeline)
     std::vector<std::string> schedulers = {
-        "",  // 默认（使用CorpusManager）
+        "",  // Default (use CorpusManager)
         "rare_edge_scheduler",
         "fast_scheduler",
         "mopt_scheduler",
@@ -5197,13 +5197,13 @@ std::vector<AlgorithmCombination> FuzzingEngine::generateCandidateCombinations()
         ? std::vector<std::string>{""}
         : AlgoConfig::ENABLED_FEEDBACKS;
 
-    // 为每个变异算法组合创建完整的pipeline组合
+    // Build full pipeline combinations for each mutation combo
     std::vector<AlgorithmCombination> full_pipeline_candidates;
     static std::random_device rd;
     static std::mt19937 gen(rd());
 
     for (auto& combo : candidates) {
-        // 为每个变异组合随机选择1个scheduler和1个feedback analyzer
+        // Randomly pick one scheduler and one feedback analyzer for each mutation combo
         std::uniform_int_distribution<> scheduler_dist(0, schedulers.size() - 1);
         std::uniform_int_distribution<> feedback_dist(0, feedback_analyzers.size() - 1);
 
@@ -5211,7 +5211,7 @@ std::vector<AlgorithmCombination> FuzzingEngine::generateCandidateCombinations()
         combo.feedback_analyzer = feedback_analyzers[feedback_dist(gen)];
         full_pipeline_candidates.push_back(combo);
 
-        // 限制总数
+        // Cap total count
         if (full_pipeline_candidates.size() >= MAX_COMBINATIONS) {
             break;
         }
@@ -5225,147 +5225,147 @@ std::vector<AlgorithmCombination> FuzzingEngine::generateCandidateCombinations()
     return full_pipeline_candidates;
 }
 
-// 计算上下文调整值
+// Calculate context adjustment value
 double FuzzingEngine::calculateContextAdjustment(const AlgorithmCombination& combo) {
     double adjustment = 0.0;
     
     auto coverage_info = global_context_->getCoverageInfo();
     auto performance_info = global_context_->getPerformanceInfo();
     
-    // === 基于覆盖率状态的智能调整 ===
+    // === Smart adjustment based on coverage state ===
     if (coverage_info.has_value()) {
         double coverage_gain = coverage_info->coverage_gain;
         
         if (coverage_gain < 0.001) {
-            // 覆盖率停滞 - 偏向探索性和AI驱动算法
+            // Coverage stagnation: bias toward exploratory and AI-driven algorithms
             // if (std::find(combo.algorithm_names.begin(), combo.algorithm_names.end(), "neuzz") != combo.algorithm_names.end()) {
-            //     adjustment += 0.3; // NEUZZ在停滞时很有效
-            // } // neuzz已归档
+            //     adjustment += 0.3; // NEUZZ is effective during stagnation
+            // } // neuzz archived
             // if (std::find(combo.algorithm_names.begin(), combo.algorithm_names.end(), "rare_branch") != combo.algorithm_names.end()) {
-            //     adjustment += 0.25; // FairFuzz专门处理稀有分支
-            // } // rare_branch已归档
+            //     adjustment += 0.25; // FairFuzz specializes in rare branches
+            // } // rare_branch archived
             // if (std::find(combo.algorithm_names.begin(), combo.algorithm_names.end(), "zest") != combo.algorithm_names.end()) {
-            //     adjustment += 0.2; // ZEST的结构化方法有助于突破
-            // } // zest已归档
+            //     adjustment += 0.2; // ZEST's structured approach can help break through
+            // } // zest archived
             if (combo.combination_mode == "parallel") {
-                adjustment += 0.15; // 并行尝试多种策略
+                adjustment += 0.15; // Try multiple strategies in parallel
             }
         } else if (coverage_gain > 0.01) {
-            // 覆盖率快速增长 - 偏向利用当前有效策略
+            // Rapid coverage growth: bias toward exploiting the currently effective strategy
             // if (std::find(combo.algorithm_names.begin(), combo.algorithm_names.end(), "gradient_descent") != combo.algorithm_names.end()) {
-            //     adjustment += 0.2; // 梯度下降优化当前方向
-            // } // gradient_descent已归档
+            //     adjustment += 0.2; // Gradient descent optimizes the current direction
+            // } // gradient_descent archived
             // if (std::find(combo.algorithm_names.begin(), combo.algorithm_names.end(), "binary_pso") != combo.algorithm_names.end()) {
-            //     adjustment += 0.15; // PSO优化搜索空间
-            // } // binary_pso已归档
+            //     adjustment += 0.15; // PSO optimizes the search space
+            // } // binary_pso archived
             if (combo.combination_mode == "sequential") {
-                adjustment += 0.1; // 顺序执行保持连贯性
+                adjustment += 0.1; // Sequential execution preserves continuity
             }
         }
     }
     
-    // === 基于性能状态的调整 ===
+    // === Adjustment based on performance state ===
     if (performance_info.has_value()) {
         double exec_time = performance_info->execution_time_ms;
         
         if (exec_time > 100) {
-            // 执行较慢 - 偏向轻量级算法
+            // Slow execution: bias toward lightweight algorithms
             if (std::find(combo.algorithm_names.begin(), combo.algorithm_names.end(), "bitflip") != combo.algorithm_names.end() ||
                 std::find(combo.algorithm_names.begin(), combo.algorithm_names.end(), "arithmetic") != combo.algorithm_names.end()) {
                 adjustment += 0.2;
             }
-            // 减少重型AI算法的权重
+            // Reduce the weight of heavy AI algorithms
             // if (std::find(combo.algorithm_names.begin(), combo.algorithm_names.end(), "neuzz") != combo.algorithm_names.end()) {
             //     adjustment -= 0.1;
-            // } // neuzz已归档
+            // } // neuzz archived
         } else if (exec_time < 10) {
-            // 执行很快 - 可以使用复杂算法
+            // Fast execution: can afford more complex algorithms
             // if (std::find(combo.algorithm_names.begin(), combo.algorithm_names.end(), "neuzz") != combo.algorithm_names.end()) {
-            //     adjustment += 0.25; // NEUZZ计算开销较大但效果好
-            // } // neuzz已归档
+            //     adjustment += 0.25; // NEUZZ has higher compute cost but can be effective
+            // } // neuzz archived
             // if (std::find(combo.algorithm_names.begin(), combo.algorithm_names.end(), "libfuzzer_structured") != combo.algorithm_names.end()) {
-            //     adjustment += 0.2; // 结构化变异开销较大
-            // } // libfuzzer_structured已归档
+            //     adjustment += 0.2; // Structured mutation has higher overhead
+            // } // libfuzzer_structured archived
         }
     }
     
-    // === 基于执行历史的调整 ===
+    // === Adjustment based on execution history ===
     size_t total_executions = stats_.total_executions.load();
     
     if (total_executions < 1000) {
-        // 早期阶段 - 偏向探索和多样性
+        // Early phase: bias toward exploration and diversity
         if (std::find(combo.algorithm_names.begin(), combo.algorithm_names.end(), "havoc") != combo.algorithm_names.end()) {
-            adjustment += 0.2; // Havoc提供好的初始探索
+            adjustment += 0.2; // Havoc provides good initial exploration
         }
         // if (std::find(combo.algorithm_names.begin(), combo.algorithm_names.end(), "deterministic") != combo.algorithm_names.end()) {
-        //     adjustment += 0.15; // 确定性变异建立基础覆盖
+        //     adjustment += 0.15; // Deterministic mutation builds baseline coverage
         // } // deterministic archived
     } else if (total_executions > 10000) {
-        // 后期阶段 - 偏向精细化和优化
+        // Late phase: bias toward refinement and optimization
         // if (std::find(combo.algorithm_names.begin(), combo.algorithm_names.end(), "rare_branch") != combo.algorithm_names.end()) {
-        //     adjustment += 0.3; // FairFuzz在后期寻找稀有路径
-        // } // rare_branch已归档
+        //     adjustment += 0.3; // FairFuzz finds rare paths in later stages
+        // } // rare_branch archived
         // if (std::find(combo.algorithm_names.begin(), combo.algorithm_names.end(), "neuzz") != combo.algorithm_names.end()) {
-        //     adjustment += 0.25; // NEUZZ在有足够训练数据后效果更好
-        // } // neuzz已归档
+        //     adjustment += 0.25; // NEUZZ performs better once there is enough training data
+        // } // neuzz archived
     }
     
-    // === 基于崩溃发现状态的调整 ===
+    // === Adjustment based on crash discovery state ===
     if (stats_.total_executions > 500 && stats_.unique_crashes == 0) {
-        // 长时间无崩溃 - 偏向崩溃导向策略
+        // No crashes for a long time: bias toward crash-oriented strategies
         if (std::find(combo.algorithm_names.begin(), combo.algorithm_names.end(), "crash_analyzer") != combo.algorithm_names.end()) {
-            adjustment += 0.3; // 崩溃分析器引导
+            adjustment += 0.3; // Crash analyzer guidance
         }
         if (std::find(combo.algorithm_names.begin(), combo.algorithm_names.end(), "arithmetic") != combo.algorithm_names.end()) {
-            adjustment += 0.2; // 算术变异容易触发边界错误
+            adjustment += 0.2; // Arithmetic mutations can trigger boundary bugs
         }
         if (std::find(combo.algorithm_names.begin(), combo.algorithm_names.end(), "havoc") != combo.algorithm_names.end()) {
-            adjustment += 0.25; // Havoc的随机性有助于发现崩溃
+            adjustment += 0.25; // Havoc's randomness can help find crashes
         }
     }
     
-    // === 基于算法协同效应的调整 ===
+    // === Adjustment based on algorithm synergy ===
     
-    // AI + 传统算法协同奖励
-    bool has_ai_algo = false; // rare_branch, zest, neuzz已归档
+    // Synergy bonus: AI + traditional algorithms
+    bool has_ai_algo = false; // rare_branch, zest, neuzz archived
     
     bool has_traditional_algo = std::find(combo.algorithm_names.begin(), combo.algorithm_names.end(), "havoc") != combo.algorithm_names.end() ||
                                std::find(combo.algorithm_names.begin(), combo.algorithm_names.end(), "bitflip") != combo.algorithm_names.end() ||
                                std::find(combo.algorithm_names.begin(), combo.algorithm_names.end(), "arithmetic") != combo.algorithm_names.end();
     
     if (has_ai_algo && has_traditional_algo) {
-        adjustment += 0.15; // AI+传统算法协同奖励
+        adjustment += 0.15; // Synergy bonus for AI + traditional algorithms
     }
     
-    // 分析器 + 变异算法协同奖励
+    // Synergy bonus: analyzer + mutator
     bool has_analyzer = std::find(combo.algorithm_names.begin(), combo.algorithm_names.end(), "coverage_analyzer") != combo.algorithm_names.end() ||
-                       std::find(combo.algorithm_names.begin(), combo.algorithm_names.end(), "crash_analyzer") != combo.algorithm_names.end(); // performance_analyzer已归档
+                       std::find(combo.algorithm_names.begin(), combo.algorithm_names.end(), "crash_analyzer") != combo.algorithm_names.end(); // performance_analyzer archived
 
-    bool has_mutator = std::find(combo.algorithm_names.begin(), combo.algorithm_names.end(), "havoc") != combo.algorithm_names.end(); // gradient_descent已归档
+    bool has_mutator = std::find(combo.algorithm_names.begin(), combo.algorithm_names.end(), "havoc") != combo.algorithm_names.end(); // gradient_descent archived
     
     if (has_analyzer && has_mutator) {
-        adjustment += 0.1; // 分析器引导变异奖励
+        adjustment += 0.1; // Reward for analyzer-guided mutation
     }
     
-    // Optimization algorithms协同奖励
-    bool has_optimizer = false; // binary_pso, gradient_descent已归档
+    // Synergy bonus: optimization algorithms
+    bool has_optimizer = false; // binary_pso, gradient_descent archived
     
     if (has_optimizer && combo.algorithm_names.size() > 1) {
-        adjustment += 0.12; // Optimization algorithms与其他算法结合奖励
+        adjustment += 0.12; // Bonus for combining optimization algorithms with others
     }
     
     return adjustment;
 }
 
-// 选择探索性算法
+// Select exploratory algorithms
 std::vector<std::string> FuzzingEngine::selectExploratoryAlgorithms(const std::vector<std::string>& enabled_algorithms) {
-    std::vector<std::string> exploratory = {"splice", "havoc"}; // gradient_descent已归档
+    std::vector<std::string> exploratory = {"splice", "havoc"}; // gradient_descent archived
     std::vector<std::string> result;
     
     for (const auto& algo : exploratory) {
         if (std::find(enabled_algorithms.begin(), enabled_algorithms.end(), algo) != enabled_algorithms.end()) {
             result.push_back(algo);
-            if (result.size() >= 2) break; // 限制组合大小
+            if (result.size() >= 2) break; // Limit combination size
         }
     }
     
@@ -5376,7 +5376,7 @@ std::vector<std::string> FuzzingEngine::selectExploratoryAlgorithms(const std::v
     return result;
 }
 
-// 选择快速算法
+// Select fast algorithms
 std::vector<std::string> FuzzingEngine::selectFastAlgorithms(const std::vector<std::string>& enabled_algorithms) {
     std::vector<std::string> fast = {"bitflip", "arithmetic"};
     std::vector<std::string> result;
@@ -5394,7 +5394,7 @@ std::vector<std::string> FuzzingEngine::selectFastAlgorithms(const std::vector<s
     return result;
 }
 
-// 选择崩溃导向算法
+// Select crash-focused algorithms
 std::vector<std::string> FuzzingEngine::selectCrashFocusedAlgorithms(const std::vector<std::string>& enabled_algorithms) {
     std::vector<std::string> crash_focused = AlgoConfig::ENABLED_MUTATIONS;
     std::vector<std::string> result;
@@ -5412,7 +5412,7 @@ std::vector<std::string> FuzzingEngine::selectCrashFocusedAlgorithms(const std::
     return result;
 }
 
-// 强制多样性算法选择 - 优先选择使用率低的算法
+// Forced diversity selection: prefer algorithms with low usage
 AlgorithmCombination FuzzingEngine::selectDiversityForcedCombination() {
     auto enabled_algorithms = getEnabledAlgorithms();
     if (enabled_algorithms.empty()) {
@@ -5422,7 +5422,7 @@ AlgorithmCombination FuzzingEngine::selectDiversityForcedCombination() {
         return default_combo;
     }
     
-    // 找出使用率最低的算法
+    // Find the lowest-usage algorithms
     std::vector<std::pair<std::string, double>> algo_usage_rates;
     {
         std::lock_guard<std::mutex> lock(diversity_stats_mutex_);
@@ -5436,11 +5436,11 @@ AlgorithmCombination FuzzingEngine::selectDiversityForcedCombination() {
         }
     }
     
-    // 按使用率排序（升序）
+    // Sort by usage rate (ascending)
     std::sort(algo_usage_rates.begin(), algo_usage_rates.end(),
               [](const auto& a, const auto& b) { return a.second < b.second; });
     
-    // 选择使用率最低的1-3个算法组成组合
+    // Select the 1-3 lowest-usage algorithms to form a combination
     AlgorithmCombination diversity_combo;
     diversity_combo.combination_mode = "sequential";
     
@@ -5449,7 +5449,7 @@ AlgorithmCombination FuzzingEngine::selectDiversityForcedCombination() {
         diversity_combo.algorithm_names.push_back(algo_usage_rates[i].first);
     }
     
-    // 添加一些随机性以避免过度确定性
+    // Add some randomness to avoid over-determinism
     static std::random_device rd;
     static std::mt19937 gen(rd());
     if (diversity_combo.algorithm_names.size() > 1) {
@@ -5461,7 +5461,7 @@ AlgorithmCombination FuzzingEngine::selectDiversityForcedCombination() {
     return diversity_combo;
 }
 
-// 打印算法使用统计
+// Print algorithm usage statistics
 void FuzzingEngine::printAlgorithmUsageStats() {
     std::lock_guard<std::mutex> lock(diversity_stats_mutex_);
     
@@ -5473,7 +5473,7 @@ void FuzzingEngine::printAlgorithmUsageStats() {
     std::cout << "\n========== Algorithm Usage Statistics ==========" << std::endl;
     std::cout << "[ALGORITHM_STATS] Total algorithm uses: " << total_algorithm_uses_ << std::endl;
     
-    // 按使用率排序算法
+    // Sort algorithms by usage rate
     std::vector<std::pair<std::string, size_t>> sorted_usage(
         algorithm_usage_stats_.begin(), algorithm_usage_stats_.end());
     std::sort(sorted_usage.begin(), sorted_usage.end(),
@@ -5487,7 +5487,7 @@ void FuzzingEngine::printAlgorithmUsageStats() {
                   << " (" << std::fixed << std::setprecision(2) << percentage << "%)" << std::endl;
     }
     
-    // 统计未使用的算法
+    // Count unused algorithms
     auto enabled_algorithms = getEnabledAlgorithms();
     std::vector<std::string> unused_algorithms;
     for (const auto& algo : enabled_algorithms) {
@@ -5504,7 +5504,7 @@ void FuzzingEngine::printAlgorithmUsageStats() {
         }
     }
     
-    // 计算多样性指标
+    // Compute diversity metrics
     double shannon_entropy = 0.0;
     for (const auto& [algo, count] : algorithm_usage_stats_) {
         if (count > 0) {
@@ -5519,15 +5519,15 @@ void FuzzingEngine::printAlgorithmUsageStats() {
     std::cout << "================================================\n" << std::endl;
 }
 
-// 应用奖励平滑化以防止过度优化特定组合
+// Apply reward smoothing to avoid over-optimizing a specific combination
 double FuzzingEngine::applyRewardSmoothing(double raw_reward, const AlgorithmCombination& combination) {
     std::string combo_key = combination.toString();
     
-    // 获取该组合的历史表现
+    // Get the combination's historical performance
     std::lock_guard<std::mutex> thompson_lock(thompson_sampling_mutex_);
     auto history_it = combination_history_.find(combo_key);
     if (history_it == combination_history_.end()) {
-        // 新组合，不需要平滑化
+        // New combination: no smoothing needed
         return raw_reward;
     }
     
@@ -5538,16 +5538,16 @@ double FuzzingEngine::applyRewardSmoothing(double raw_reward, const AlgorithmCom
     
     double avg_historical_reward = total_reward / uses;
     
-    // 如果当前奖励显著高于历史平均值，进行适度削减
-    double reward_ratio = raw_reward / (avg_historical_reward + 0.01); // 防止除零
+    // If the current reward is significantly higher than the historical average, reduce it moderately
+    double reward_ratio = raw_reward / (avg_historical_reward + 0.01); // Avoid divide-by-zero
     
     if (reward_ratio > 2.0) {
-        // 当前奖励是历史平均的2倍以上，进行对数缩放
+        // If current reward is >2x historical average, apply logarithmic scaling
         double scaling_factor = 1.0 + std::log(reward_ratio) / std::log(2.0);
-        raw_reward = avg_historical_reward * scaling_factor * 0.8; // 额外的0.8因子进一步平滑
+        raw_reward = avg_historical_reward * scaling_factor * 0.8; // Extra 0.8 factor for additional smoothing
         
-        // 调试输出
-        if (uses % 100 == 0) { // 每100次输出一次，避免日志过多
+        // Debug output
+        if (uses % 100 == 0) { // Print once per 100 uses to avoid log spam
             std::cout << "[REWARD_SMOOTHING] " << combo_key 
                       << " reward smoothed from " << std::fixed << std::setprecision(3) 
                       << (raw_reward / 0.8 / scaling_factor) 
@@ -5555,19 +5555,19 @@ double FuzzingEngine::applyRewardSmoothing(double raw_reward, const AlgorithmCom
         }
     }
     
-    // 为不同算法的组合提供多样性奖励加成
+    // Add a diversity bonus for combinations with multiple algorithms
     if (combination.algorithm_names.size() > 1) {
-        // 计算算法多样性得分
+        // Compute algorithm diversity score
         std::set<std::string> unique_algorithms(combination.algorithm_names.begin(), 
                                                combination.algorithm_names.end());
         double diversity_factor = static_cast<double>(unique_algorithms.size()) / combination.algorithm_names.size();
-        raw_reward += 0.05 * diversity_factor; // 最多5%的多样性奖励
+        raw_reward += 0.05 * diversity_factor; // Up to 5% diversity bonus
     }
     
     return raw_reward;
 }
 
-// 选择平衡算法
+// Select balanced algorithms
 std::vector<std::string> FuzzingEngine::selectBalancedAlgorithms(const std::vector<std::string>& enabled_algorithms) {
     std::vector<std::string> balanced = {"havoc", "bitflip"};
     std::vector<std::string> result;
@@ -5586,13 +5586,13 @@ std::vector<std::string> FuzzingEngine::selectBalancedAlgorithms(const std::vect
 }
 
 ExecutionResult FuzzingEngine::executeInput(const std::vector<uint8_t>& input) {
-    // 如果有自定义执行器，使用它
+    // Use custom executor if provided
     if (custom_executor_) {
         // std::cout << "[DEBUG] Using custom executor" << std::endl;
         return custom_executor_->execute(input, config_.timeout);
     }
     
-    // 使用默认执行器实例，避免每次都创建新的
+    // Use the default executor instance to avoid recreating it each time
     if (!default_executor_) {
         std::cerr << "[ERROR] Default executor not initialized!" << std::endl;
         throw std::runtime_error("Default executor not initialized");
@@ -5794,13 +5794,13 @@ void FuzzingEngine::processResult(const ExecutionResult& result, const Seed& ori
             has_new_coverage = result.coverage.hasNewCoverage();
         }
         
-        // 计算组合奖励分数（基于修正后的覆盖率信息）
+        // Compute the combination reward score (based on corrected coverage info)
         double combination_reward = 0.0;
         try {
             combination_reward = calculateCombinationReward(result, original_seed);
         } catch (const std::exception& e) {
             std::cerr << "[ERROR] Calculate reward error: " << e.what() << std::endl;
-            combination_reward = 0.1; // 默认值
+            combination_reward = 0.1; // default value
         }
         double exec_time_ms = result.performance.execution_time_ms;
         bool decoder_success = (result.status == ExecutionResult::Status::Success);
@@ -5826,13 +5826,13 @@ void FuzzingEngine::processResult(const ExecutionResult& result, const Seed& ori
         }
         combination_reward = std::clamp(combination_reward, -0.2, 1.0);
         
-        // 记录奖励到批次选择器（添加保护）
+        // Record reward to the batch selector (with safety checks)
         try {
             if (batch_selector_) {
                 bool crashed = (result.status == ExecutionResult::Status::Crash);
                 batch_selector_->recordExecution(combination_reward, has_new_coverage, crashed, decoder_success);
 
-                // 如果发现新覆盖率，强制结束当前批次以快速适应优秀策略
+                // If new coverage is found, force-end the current batch to quickly adapt to strong strategies
                 if (has_new_coverage && result.coverage.new_edges.size() > 0) {
                     batch_selector_->forceEndBatch();
                 }
@@ -5841,10 +5841,10 @@ void FuzzingEngine::processResult(const ExecutionResult& result, const Seed& ori
             std::cerr << "[ERROR] Batch selector error: " << e.what() << std::endl;
         }
         
-        // 更新算法使用统计（用于多样性追踪）
+        // Update algorithm usage stats (for diversity tracking)
         updateAlgorithmUsageStats(combination);
         
-        // 更新算法组合的性能统计
+        // Update algorithm-combination performance stats
         try {
             updateCombinationPerformance(combination, combination_reward, result);
         } catch (const std::exception& e) {
@@ -5866,7 +5866,7 @@ void FuzzingEngine::processResult(const ExecutionResult& result, const Seed& ori
                       << ", combo=" << combination.toString() << std::endl;
         }
         
-        // 创建新种子 - 只在真正有新覆盖时，添加完整的错误处理
+        // Create a new seed only when truly new coverage is found (with full error handling)
         if (has_new_coverage && result.coverage.new_edges.size() > 0) {
             std::stringstream ss;
             ss << "[+] New coverage found! " << result.coverage.new_edges.size()
@@ -5875,39 +5875,39 @@ void FuzzingEngine::processResult(const ExecutionResult& result, const Seed& ori
             ThreadSafeLogger::getInstance().logImmediate(ss.str());
             
             try {
-                // 安全创建新种子 - 使用深拷贝避免引用问题
+                // Safely create a new seed: use deep copies to avoid reference issues
                 Seed new_seed;
-                // new_seed.data = original_seed.data; // 深拷贝
-                new_seed.data = result.input_data; // 深拷贝
-                new_seed.coverage = result.coverage; // 深拷贝
-                new_seed.performance = result.performance; // 深拷贝
+                // new_seed.data = original_seed.data; // deep copy
+                new_seed.data = result.input_data; // deep copy
+                new_seed.coverage = result.coverage; // deep copy
+                new_seed.performance = result.performance; // deep copy
                 new_seed.created_time = std::chrono::system_clock::now();
                 new_seed.generation = original_seed.generation + 1;
                 
-                // 安全复制算法历史
+                // Safely copy algorithm history
                 new_seed.algorithm_history = original_seed.algorithm_history;
                 new_seed.algorithm_history.push_back(combination.toString());
                 
-                // 设置种子能量（基于新发现的边数和覆盖率增益）
+                // Set seed energy (based on new edge count and coverage gain)
                 double coverage_bonus = result.coverage.new_edges.size() * 0.2;
                 double gain_bonus = result.coverage.coverage_gain * 10.0;
                 new_seed.energy = 1.0 + coverage_bonus + gain_bonus;
                 
-                // 添加到语料库 - 使用移动语义并确保异常安全
+                // Add to corpus: use move semantics and ensure exception safety
                 if (corpus_manager_) {
                     corpus_manager_->addSeed(std::move(new_seed));
                 } else {
                     std::cerr << "[ERROR] Corpus manager is null!" << std::endl;
                 }
                 
-                // 更新统计
+                // Update stats
                 stats_.new_coverage_found++;
                 stats_.last_coverage_time = std::chrono::system_clock::now();
                 
-                // 安全触发回调，传递算法组合信息
+                // Safely fire callback, passing algorithm-combination info
                 if (on_new_coverage_) {
                     try {
-                        // 创建用于回调的种子，避免移动后访问
+                        // Create a seed for the callback to avoid accessing after move
                         Seed callback_seed;
                         callback_seed.data = original_seed.data;
                         callback_seed.coverage = result.coverage;
@@ -5916,7 +5916,7 @@ void FuzzingEngine::processResult(const ExecutionResult& result, const Seed& ori
                         callback_seed.generation = original_seed.generation + 1;
                         callback_seed.algorithm_history = original_seed.algorithm_history;
                         callback_seed.algorithm_history.push_back(combination.toString());
-                        callback_seed.energy = new_seed.energy; // 使用相同的能量计算
+                        callback_seed.energy = new_seed.energy; // Use the same energy calculation
                         
                         on_new_coverage_(callback_seed, combination);
                     } catch (const std::exception& e) {
@@ -5928,31 +5928,31 @@ void FuzzingEngine::processResult(const ExecutionResult& result, const Seed& ori
             }
         }
         
-        // 处理崩溃 - 添加完整的错误处理
+        // Handle crash (with full error handling)
         if (result.status == ExecutionResult::Status::Crash) {
             try {
-                bool is_unique = true; // crash_analyzer已归档，保守认为所有crash都是唯一的
+                bool is_unique = true; // crash_analyzer archived; conservatively treat all crashes as unique
                 
                 if (is_unique) {
                     try {
-                        // 创建崩溃种子 - 安全创建
+                        // Create crash seed safely
                         Seed crash_seed;
-                        crash_seed.data = original_seed.data; // 使用原始输入
+                        crash_seed.data = original_seed.data; // Use original input
                         crash_seed.coverage = result.coverage;
                         crash_seed.performance = result.performance;
                         crash_seed.created_time = std::chrono::system_clock::now();
                         crash_seed.generation = original_seed.generation + 1;
-                        crash_seed.energy = 2.0; // 崩溃种子具有更高能量
+                        crash_seed.energy = 2.0; // Crash seeds have higher energy
                         
                         if (corpus_manager_) {
                             corpus_manager_->addCrashSeed(std::move(crash_seed));
                         }
                         
-                        // 更新统计
+                        // Update stats
                         stats_.unique_crashes++;
                         stats_.last_crash_time = std::chrono::system_clock::now();
                         
-                        // 安全触发回调，传递算法组合信息
+                        // Safely fire callback, passing algorithm-combination info
                         if (on_crash_) {
                             try {
                                 on_crash_(result, combination);
@@ -5971,111 +5971,111 @@ void FuzzingEngine::processResult(const ExecutionResult& result, const Seed& ori
             }
         }
         
-        // 更新执行统计
+        // Update execution stats
         stats_.total_executions++;
         
     } catch (const std::exception& e) {
         std::cerr << "[ERROR] processResult fatal error: " << e.what() << std::endl;
-        // 即使出错也要更新基本统计，避免程序彻底失败
+        // Even on error, update basic stats to avoid a hard failure
         stats_.total_executions++;
     } catch (...) {
         std::cerr << "[ERROR] processResult unknown fatal error" << std::endl;
-        // 即使出错也要更新基本统计，避免程序彻底失败
+        // Even on error, update basic stats to avoid a hard failure
         stats_.total_executions++;
     }
 }
 
-// 计算组合奖励分数
+// Compute combination reward score
 double FuzzingEngine::calculateCombinationReward(const ExecutionResult& result, const Seed& original_seed) {
     double reward = 0.0;
     
-    // 修复：更精确的覆盖率奖励计算 (权重: 0.5)
+    // Fix: more precise coverage reward calculation (weight: 0.5)
     if (result.coverage.hasNewCoverage() && result.coverage.new_edges.size() > 0) {
-        // 基于新边数量的奖励（对数增长以避免过度奖励）
+        // Reward based on number of new edges (log growth to avoid over-rewarding)
         double new_edges_score = std::min(1.0, std::log(result.coverage.new_edges.size() + 1) / std::log(10.0));
         
-        // 基于覆盖率增益的奖励
+        // Reward based on coverage gain
         double gain_score = std::min(1.0, result.coverage.coverage_gain * 10.0);
         
-        // 组合覆盖率奖励
+        // Combined coverage reward
         reward += 0.5 * (0.7 * new_edges_score + 0.3 * gain_score);
     }
     
-    // 崩溃奖励 (权重: 0.3)
+    // Crash reward (weight: 0.3)
     if (result.status == ExecutionResult::Status::Crash) {
-        reward += 0.5; // crash_analyzer已归档，直接给crash奖励(0.3+0.2)
+        reward += 0.5; // crash_analyzer archived; grant crash reward directly (0.3 + 0.2)
     }
     
-    // 性能奖励 (权重: 0.1) - 进一步降低权重
+    // Performance reward (weight: 0.1) - further reduced weight
     double execution_speed = 1000.0 / std::max(1.0, static_cast<double>(result.performance.execution_time_ms));
     double speed_score = std::min(1.0, execution_speed / 200.0);
     reward += 0.1 * speed_score;
     
-    // 大小探索奖励 (权重: 0.1) - 鼓励探索不同大小的输入
+    // Size-exploration reward (weight: 0.1) - encourage exploring different input sizes
     double size_exploration_bonus = 0.0;
     size_t input_size = result.input_data.size();
     
-    // 调整奖励策略，更强烈地鼓励大输入探索
+    // Adjust reward strategy to more strongly encourage exploration of large inputs
     if (input_size > 4) {
         if (input_size >= 10 && input_size < 20) {
-            size_exploration_bonus = 0.2;  // 中等大小奖励
+            size_exploration_bonus = 0.2;  // medium-size bonus
         } else if (input_size >= 20 && input_size < 50) {
-            size_exploration_bonus = 0.3;  // 较大大小奖励
+            size_exploration_bonus = 0.3;  // larger-size bonus
         } else if (input_size >= 50 && input_size < 100) {
-            size_exploration_bonus = 0.4;  // 大大小奖励
+            size_exploration_bonus = 0.4;  // large-size bonus
         } else if (input_size >= 100 && input_size < 500) {
-            size_exploration_bonus = 0.5;  // 超大大小奖励
+            size_exploration_bonus = 0.5;  // extra-large bonus
         } else if (input_size >= 500 && input_size < 1024) {
-            size_exploration_bonus = 0.6;  // 巨大大小奖励
+            size_exploration_bonus = 0.6;  // huge-size bonus
         } else if (input_size >= 1024 && input_size < 2048) {
-            size_exploration_bonus = 0.7;  // 特大大小奖励
+            size_exploration_bonus = 0.7;  // very-large bonus
         } else if (input_size >= 2048) {
-            size_exploration_bonus = 0.8;  // 最大大小奖励
+            size_exploration_bonus = 0.8;  // maximum-size bonus
         } else if (input_size > 4 && input_size < 10) {
-            size_exploration_bonus = 0.1;  // 小幅增长奖励
+            size_exploration_bonus = 0.1;  // small growth bonus
         }
     }
     
-    // 对于非常小的输入（1-3字节）给予少量奖励以保持多样性
+    // For very small inputs (1-3 bytes), give a small bonus to preserve diversity
     if (input_size <= 3 && input_size > 0) {
-        size_exploration_bonus = 0.05;  // 降低小输入奖励
+        size_exploration_bonus = 0.05;  // reduced small-input bonus
     }
     
-    // 增加大小探索奖励的权重
-    reward += 0.15 * size_exploration_bonus;  // 从0.1增加到0.15
+    // Increase the weight of the size-exploration bonus
+    reward += 0.15 * size_exploration_bonus;  // from 0.1 to 0.15
     
-    // 确保奖励在合理范围内
+    // Keep reward within a reasonable range
     reward = std::max(0.0, std::min(1.0, reward));
     
     return reward;
 }
 
-// 更新算法使用统计（用于多样性追踪）
+// Update algorithm usage stats (for diversity tracking)
 void FuzzingEngine::updateAlgorithmUsageStats(const AlgorithmCombination& combination) {
     std::string combo_key = combination.toString();
     
     std::lock_guard<std::mutex> lock(diversity_stats_mutex_);
     
-    // 更新组合最后使用时间
+    // Update last-used time for the combination
     last_combo_usage_[combo_key] = std::chrono::steady_clock::now();
     
-    // 更新每个算法的使用统计
+    // Update usage stats for each algorithm
     for (const auto& algo_name : combination.algorithm_names) {
         algorithm_usage_stats_[algo_name]++;
         total_algorithm_uses_++;
     }
     
-    // 定期输出算法使用统计和清理数据（每1000次使用）
+    // Periodically print usage stats and clean up data (every 1000 uses)
     if (total_algorithm_uses_ % 1000 == 0) {
         printAlgorithmUsageStats();
         
-        // 防止数据溢出，将所有计数减半
+        // Prevent overflow: halve all counts
         for (auto& [algo, count] : algorithm_usage_stats_) {
             count /= 2;
         }
         total_algorithm_uses_ /= 2;
         
-        // 清理过旧的组合使用时间记录（超过30分钟的）
+        // Clean up stale combination usage timestamps (older than 30 minutes)
         auto current_time = std::chrono::steady_clock::now();
         auto cutoff_time = current_time - std::chrono::minutes(30);
         
@@ -6089,9 +6089,9 @@ void FuzzingEngine::updateAlgorithmUsageStats(const AlgorithmCombination& combin
     }
 }
 
-// 更新组合性能统计
+// Update combination performance stats
 void FuzzingEngine::updateCombinationPerformance(const AlgorithmCombination& combination, double reward, const ExecutionResult& result) {
-    // added: 使用分层调度器更新性能 (基于开销的自适应调度)
+    // added: update performance via tiered scheduler (cost-aware adaptive scheduling)
     if (use_tiered_scheduler_ && tiered_scheduler_ && !combination.algorithm_names.empty()) {
         std::string algorithm_name = combination.algorithm_names[0];
         double execution_time_ms = result.performance.execution_time_ms;
@@ -6099,15 +6099,15 @@ void FuzzingEngine::updateCombinationPerformance(const AlgorithmCombination& com
         tiered_scheduler_->updatePerformance(algorithm_name, execution_time_ms, found_new_coverage, reward);
     }
 
-    // added: 使用优化版Thompson Sampling更新性能统计 (保留动态学习能力)
+    // added: update performance stats via optimized Thompson Sampling (preserve dynamic learning)
     if (use_optimized_thompson_ && optimized_thompson_) {
         optimized_thompson_->updatePerformance(combination, reward);
     }
 
     std::string combo_key = combination.toString();
 
-    // 使用批次算法选择器记录执行结果
-    // 批次选择器会自动处理Thompson Sampling更新
+    // Record execution results via the batch algorithm selector
+    // Batch selector handles Thompson Sampling updates automatically
     if (batch_selector_) {
         bool has_new_coverage = !result.coverage.new_edges.empty();
         bool crashed = (result.status == ExecutionResult::Status::Crash);
@@ -6174,7 +6174,7 @@ void FuzzingEngine::periodicTasks() {
         std::chrono::duration_cast<std::chrono::seconds>(now - last_stats_print_time) >= std::chrono::seconds(30)) {
         printAlgorithmUsageStats();
 
-        // 打印分层调度器统计
+        // Print tiered scheduler statistics
         if (use_tiered_scheduler_ && tiered_scheduler_) {
             std::cout << tiered_scheduler_->getStatisticsReport() << std::endl;
         }
@@ -6184,7 +6184,7 @@ void FuzzingEngine::periodicTasks() {
 }
 
 void FuzzingEngine::updateStats() {
-    // 计算执行速度
+    // Compute execution speed
     auto now = std::chrono::system_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::seconds>(now - stats_.start_time);
     
@@ -6192,50 +6192,50 @@ void FuzzingEngine::updateStats() {
         stats_.executions_per_second = stats_.total_executions / duration.count();
     }
     
-    // 直接使用RealCoverageCollector获取准确的覆盖率数据
+    // Use RealCoverageCollector directly for accurate coverage data
     auto& real_collector = RealCoverageCollector::getInstance();
     size_t total_guards = real_collector.getTotalGuards();
     size_t covered_edges = real_collector.getCoveredEdges();
     
-    // 获取Branch覆盖率信息
+    // Get branch coverage info
     auto current_coverage_info = real_collector.getCurrentCoverage();
     size_t total_branches = current_coverage_info.total_branches;
     size_t covered_branches = current_coverage_info.covered_branch_count;
     
-    // 移除频繁的调试输出，提升性能
-    // 只在verbose模式或覆盖率变化时输出
+    // Remove frequent debug output to improve performance
+    // Only output in verbose mode or when coverage changes
     static size_t last_covered_edges = 0;
     static size_t debug_counter = 0;
-    // if ((++debug_counter % 100 == 0) ||  // 每100次输出一次
-    //     (covered_edges != last_covered_edges)) {  // 或覆盖率变化时
+    // if ((++debug_counter % 100 == 0) ||  // Print once every 100 times
+    //     (covered_edges != last_covered_edges)) {  // or when coverage changes
     //     if (covered_edges != last_covered_edges) {
     //         last_covered_edges = covered_edges;
-    //         // 简化输出，移除verbose检查
+    //         // Simplify output; remove verbose check
     //         std::cout << "[INFO] Coverage update: " << covered_edges << "/" << total_guards
     //                   << " edges covered" << std::endl;
     //     }
     // }
     
     if (total_guards > 0) {
-        // 使用真实的覆盖率计算
+        // Use the real coverage calculation
         double current_coverage = static_cast<double>(covered_edges) / total_guards * 100.0;
         stats_.coverage_percentage = current_coverage;
         stats_.total_coverage = covered_edges;
         
-        // 添加Branch覆盖率统计 - 使用已获取的数据
+        // Add branch coverage stats using the fetched data
         stats_.total_branches = total_branches;
         stats_.covered_branches = covered_branches;
         stats_.branch_coverage_percentage = current_coverage_info.getBranchCoveragePercentage();
         
-        // 移除调试输出
+        // Debug output removed
     } else {
-        // 如果没有插装数据，使用备用方法
+        // If there is no instrumentation data, use a fallback
         if (coverage_collector_) {
             stats_.coverage_percentage = coverage_collector_->getCoveragePercentage();
             stats_.total_coverage = coverage_collector_->getUniqueEdgesCount();
             std::cout << "[DEBUG] updateStats: Using backup coverage collector" << std::endl;
         } else {
-            // 保持之前的覆盖率值，不要重置为0
+            // Keep the previous coverage value; don't reset to 0
             static bool warned = false;
             if (!warned) {
                 std::cout << "[WARNING] updateStats: No instrumentation data available, keeping previous coverage value" << std::endl;
@@ -6260,20 +6260,20 @@ Seed FuzzingEngine::selectSeed() {
         }
     }
 
-    // 如果语料库管理器不可用或没有种子，创建一个默认种子
-    // 使用更大的初始种子以探索更多的代码路径和边界条件
+    // If the corpus manager is unavailable or has no seeds, create a default seed
+    // Use a larger initial seed to explore more code paths and boundary conditions
     Seed default_seed;
 
-    // 创建一个512字节的初始种子，包含多种有意义的模式
+    // Create a 512-byte initial seed with multiple meaningful patterns
     default_seed.data.resize(512);
 
-    // 填充策略：混合不同的数据模式以提高初始覆盖率
-    // 前64字节：ASCII可打印字符
+    // Fill strategy: mix different data patterns to improve initial coverage
+    // First 64 bytes: ASCII printable characters
     for (size_t i = 0; i < 64 && i < default_seed.data.size(); ++i) {
         default_seed.data[i] = static_cast<uint8_t>(' ' + (i % 95)); // ASCII 32-126
     }
 
-    // 64-128字节：零字节和边界值
+    // Bytes 64-128: zeros and boundary values
     for (size_t i = 64; i < 128 && i < default_seed.data.size(); ++i) {
         if (i % 4 == 0) default_seed.data[i] = 0x00;
         else if (i % 4 == 1) default_seed.data[i] = 0xFF;
@@ -6281,13 +6281,13 @@ Seed FuzzingEngine::selectSeed() {
         else default_seed.data[i] = 0x80;
     }
 
-    // 128-256字节：递增序列
+    // Bytes 128-256: incremental sequence
     for (size_t i = 128; i < 256 && i < default_seed.data.size(); ++i) {
         default_seed.data[i] = static_cast<uint8_t>(i);
     }
 
-    // 256-512字节：随机但可重现的数据
-    std::mt19937 rng(42); // 固定种子以保证可重现性
+    // Bytes 256-512: random but reproducible data
+    std::mt19937 rng(42); // Fixed seed for reproducibility
     std::uniform_int_distribution<uint8_t> dist(0, 255);
     for (size_t i = 256; i < default_seed.data.size(); ++i) {
         default_seed.data[i] = dist(rng);
@@ -6320,7 +6320,7 @@ void FuzzingEngine::updateSeedPowerSchedule(Seed& seed) {
     }
 
     // Factor 3: Rare edge discovery (seeds covering rare edges get more energy)
-    // 简化版本：只对新边缘数量多的种子给予奖励，避免昂贵的哈希计算
+    // Simplified: reward only seeds with many new edges to avoid expensive hash computation
     if (seed.coverage.new_edges.size() > 5) {
         seed.energy *= 1.3;  // 30% boost for seeds with many new edges
     } else if (seed.coverage.new_edges.size() > 2) {
@@ -6342,16 +6342,16 @@ void FuzzingEngine::updateSeedPowerSchedule(Seed& seed) {
     // Cap energy to reasonable bounds
     seed.energy = std::min(100.0, std::max(0.1, seed.energy));
 
-    // 注意：不在这里立即更新CorpusManager中的能量，以避免死锁
-    // 能量更新会在种子被使用后或在批处理时进行
+    // Note: do not update energy in CorpusManager here to avoid deadlocks
+    // Energy updates happen after a seed is used or during batching
 }
 
 void FuzzingEngine::registerDefaultAlgorithms() {
-    // 在严格算法隔离模式下，只注册配置中指定的算法
+    // In strict algorithm-isolation mode, register only algorithms specified in the config
     if (config_.strict_algorithm_isolation) {
         std::cout << "[STRICT MODE] Only registering specified algorithms for strict isolation" << std::endl;
         
-        // 获取需要注册的算法列表（去重）
+        // Collect the algorithms to register (deduplicated)
         std::set<std::string> algorithms_to_register;
         for (const auto& algo : config_.enabled_algorithms) {
             algorithms_to_register.insert(algo);
@@ -6363,7 +6363,7 @@ void FuzzingEngine::registerDefaultAlgorithms() {
         }
         std::cout << std::endl;
         
-        // 定义算法注册映射表
+        // Define the algorithm factory map
         std::map<std::string, std::function<std::shared_ptr<AlgorithmBase>()>> algorithm_factories = {
             // Active mutation algorithms (used in unified path)
             {"smart_dictionary", [this]() -> std::shared_ptr<AlgorithmBase> { return std::make_shared<SmartDictionaryMutation>(config_.dictionary_file); }},
@@ -6389,7 +6389,7 @@ void FuzzingEngine::registerDefaultAlgorithms() {
             {"contextual_ucb", []() -> std::shared_ptr<AlgorithmBase> { return std::make_shared<ContextualUCB>(); }}
         };
         
-        // 只注册指定的算法
+        // Register only the specified algorithms
         for (const auto& algo_name : algorithms_to_register) {
             auto it = algorithm_factories.find(algo_name);
             if (it != algorithm_factories.end()) {
@@ -6426,7 +6426,7 @@ void FuzzingEngine::registerDefaultAlgorithms() {
             return std::make_shared<StructureAwareMutation>();
         });
 
-        // 注册调度算法 - 已归档
+        // Scheduler algorithms (archived)
         // Multi-armed bandit algorithms
         registerAlgorithm("ucb_bandit", []() -> std::shared_ptr<AlgorithmBase> {
             return std::make_shared<UCBBandit>();
@@ -6439,13 +6439,13 @@ void FuzzingEngine::registerDefaultAlgorithms() {
         });
     }
     
-    // 启用配置中指定的算法（过滤掉调度器和反馈分析器）
+    // Enable algorithms specified in the config (filtering out schedulers and feedback analyzers)
     std::cout << "[INFO] Enabling configured algorithms..." << std::endl;
     std::cout << "[DEBUG] config_.enabled_algorithms.size() = " << config_.enabled_algorithms.size() << std::endl;
     std::cout << "[DEBUG] config_.enable_dynamic_combination = " << config_.enable_dynamic_combination << std::endl;
 
     for (const auto& algo_name : config_.enabled_algorithms) {
-        // 使用 AlgoConfig::isEnabled() 进行集中式过滤（自动排除调度器、反馈分析器等）
+        // Use AlgoConfig::isEnabled() for centralized filtering (automatically excludes schedulers/feedback analyzers, etc.)
         if (!AlgoConfig::isEnabled(algo_name)) {
             // std::cout << "[INFO] Skipping " << algo_name << " (not enabled in AlgorithmConfig)" << std::endl;
             continue;
@@ -6454,12 +6454,12 @@ void FuzzingEngine::registerDefaultAlgorithms() {
         enableAlgorithm(algo_name);
     }
     
-    // 如果没有指定算法并且启用了动态组合，才启用所有已注册的算法
-    // 如果禁用了动态组合（即使用固定组合），则不应该启用所有算法
+    // Enable all registered algorithms only when none are specified AND dynamic combination is enabled
+    // If dynamic combination is disabled (i.e., fixed combinations), do not enable all algorithms
     if (config_.enabled_algorithms.empty() && config_.enable_dynamic_combination) {
         std::cout << "[INFO] No algorithms specified in config and dynamic combination enabled, enabling all registered algorithms" << std::endl;
 
-        // 启用所有已注册的算法（从 AlgorithmConfig 集中获取）
+        // Enable all registered algorithms (from AlgorithmConfig)
         std::vector<std::string> all_registered_algorithms = AlgoConfig::getAllEnabled();
 
         for (const auto& algo_name : all_registered_algorithms) {
@@ -6505,12 +6505,12 @@ std::vector<uint8_t> FuzzingEngine::applyAlgorithmCombination(
 
     try {
         if (combination.combination_mode == "sequential") {
-            // 顺序执行算法组合
+            // Execute the algorithm combination sequentially
             for (const auto& algorithm_name : combination.algorithm_names) {
                 result = applySingleAlgorithm(result, algorithm_name, local_context);
             }
         } else if (combination.combination_mode == "parallel") {
-            // 并行模式退化为快速随机选择单个算法，避免多次变异带来的性能开销
+            // "Parallel" mode degrades to quickly selecting a single algorithm at random to avoid overhead from multiple mutations
             if (!combination.algorithm_names.empty()) {
                 static thread_local std::mt19937 gen(std::random_device{}());
                 std::uniform_int_distribution<size_t> algo_dist(
@@ -6519,7 +6519,7 @@ std::vector<uint8_t> FuzzingEngine::applyAlgorithmCombination(
                 result = applySingleAlgorithm(result, combination.algorithm_names[selected_idx], local_context);
             }
         } else if (combination.combination_mode == "weighted") {
-            // 加权选择一个算法执行
+            // Choose one algorithm to execute using weights
             if (!combination.algorithm_names.empty()) {
                 double total_weight = 0.0;
                 for (const auto& [algo, weight] : combination.weights) {
@@ -6544,7 +6544,7 @@ std::vector<uint8_t> FuzzingEngine::applyAlgorithmCombination(
                         }
                     }
                 } else {
-                    // 如果没有权重，随机选择一个
+                    // If there are no weights, pick one at random
                     std::uniform_int_distribution<size_t> algo_dist(0, combination.algorithm_names.size() - 1);
                     static std::random_device rd;
                     static std::mt19937 gen(rd());
@@ -6553,7 +6553,7 @@ std::vector<uint8_t> FuzzingEngine::applyAlgorithmCombination(
                 }
             }
         } else {
-            // 默认情况：随机选择一个算法
+            // Default: pick one algorithm at random
             if (!combination.algorithm_names.empty()) {
                 std::uniform_int_distribution<size_t> algo_dist(0, combination.algorithm_names.size() - 1);
                 static std::random_device rd;
@@ -6565,7 +6565,7 @@ std::vector<uint8_t> FuzzingEngine::applyAlgorithmCombination(
         
     } catch (const std::exception& e) {
         std::cerr << "[ERROR] Failed to apply algorithm combination: " << e.what() << std::endl;
-        // 发生错误时，至少应用一个基础变异
+        // On error, apply at least one basic mutation
         result = applySingleAlgorithm(result, "havoc", local_context);
     }
     
@@ -6687,10 +6687,10 @@ void FuzzingEngine::postProcessMutatedInput(
 	    const std::string& algorithm_name,
 	    ThreadLocalContext& local_context) {
 
-    // 快速路径：直接使用输入，避免不必要的复制
+    // Fast path: start from the input directly to avoid unnecessary copies
     std::vector<uint8_t> result = input;
 
-    // 解析算法名称（忽略参数以提升性能）
+    // Parse algorithm name (ignore parameters for performance)
     std::string base_algorithm_name = algorithm_name;
     size_t colon_pos = algorithm_name.find(':');
     if (colon_pos != std::string::npos) {
@@ -6698,9 +6698,9 @@ void FuzzingEngine::postProcessMutatedInput(
     }
 
     try {
-        // === 高性能算法执行：使用线程局部对象池 ===
+        // === High-performance algorithm execution: use a thread-local object pool ===
 
-        // 线程局部的算法对象池（预分配常用算法）
+        // Thread-local pool of algorithm objects (pre-allocate common algorithms)
         thread_local struct AlgorithmPool {
             // Active mutation algorithms used in the unified path
             FormatAwareMutation format_aware;
@@ -6778,7 +6778,7 @@ void FuzzingEngine::postProcessMutatedInput(
             MOptSplice mopt_splice;
         } pool;
 
-        // 如果提供了外部字典文件，则在线程首次使用前加载（一次性）
+        // If an external dictionary file is provided, load it once before this thread's first use
         {
             static thread_local bool smart_dict_initialized = false;
             if (!smart_dict_initialized) {
@@ -6866,7 +6866,7 @@ void FuzzingEngine::postProcessMutatedInput(
                         }
                     }
                 } catch (...) {
-                    // 字典加载失败不应影响正常变异流程，静默降级
+                    // Dictionary load failure should not break the mutation flow; degrade silently
                 }
                 smart_dict_initialized = true;
             }
@@ -6894,7 +6894,7 @@ void FuzzingEngine::postProcessMutatedInput(
 	            }
 	        }
 
-	        // 使用switch-case替代if-else链（编译器可以优化成跳转表）
+		        // Use switch/case instead of an if-else chain (compiler can optimize into a jump table)
 	        static const std::unordered_map<std::string, int> algo_map = {
             // Active algorithms used in unified path
             {"format_aware", 21},
@@ -7052,24 +7052,24 @@ void FuzzingEngine::postProcessMutatedInput(
         }
         
     } catch (const std::exception& e) {
-        // 静默处理错误，避免日志开销
-        // 返回轻微变异的输入
+        // Handle errors silently to avoid logging overhead
+        // Return a lightly mutated input
         if (!result.empty()) {
             thread_local std::mt19937 gen(std::random_device{}());
             std::uniform_int_distribution<size_t> pos_dist(0, result.size() - 1);
-            result[pos_dist(gen)] ^= (1 << (gen() & 7));  // 快速bit flip
+            result[pos_dist(gen)] ^= (1 << (gen() & 7));  // fast bit flip
         }
     }
     
     return result;
 }
 
-// 检测目标是否需要结构化输入（通过分析种子文件特征）
+// Detect whether the target needs structured inputs (by analyzing seed characteristics)
 bool triofuzz::FuzzingEngine::detectStructuredInputTarget() const {
-    // 检查种子文件的特征来判断是否为结构化格式
+    // Inspect seed characteristics to decide whether it is a structured format
     if (!corpus_manager_) return false;
 
-    // 尝试获取一些种子进行分析
+    // Try to grab a few seeds for analysis
     std::vector<Seed> seeds;
     for (size_t i = 0; i < 5; ++i) {
         auto seed_opt = corpus_manager_->getRandomSeed();
@@ -7079,7 +7079,7 @@ bool triofuzz::FuzzingEngine::detectStructuredInputTarget() const {
     }
     if (seeds.empty()) return false;
 
-    // 分析前几个种子文件
+    // Analyze the first few seeds
     size_t structured_count = 0;
     size_t check_limit = seeds.size();
 
@@ -7087,10 +7087,10 @@ bool triofuzz::FuzzingEngine::detectStructuredInputTarget() const {
         const auto& data = seeds[i].data;
         if (data.size() < 4) continue;
 
-        // 检查常见的文件格式magic numbers
+        // Check common file-format magic numbers
         bool is_structured = false;
 
-        // 图像格式
+        // Image formats
         if ((data[0] == 0xFF && data[1] == 0xD8) || // JPEG
             (data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47) || // PNG
             (data[0] == 'G' && data[1] == 'I' && data[2] == 'F') || // GIF
@@ -7098,7 +7098,7 @@ bool triofuzz::FuzzingEngine::detectStructuredInputTarget() const {
             is_structured = true;
         }
 
-        // 文档格式
+        // Document formats
         if ((data[0] == 0x25 && data[1] == 0x50 && data[2] == 0x44 && data[3] == 0x46) || // PDF
             (data[0] == 0x50 && data[1] == 0x4B) || // ZIP/DOCX/XLSX
             (data[0] == 0xD0 && data[1] == 0xCF)) { // DOC/XLS
@@ -7111,7 +7111,7 @@ bool triofuzz::FuzzingEngine::detectStructuredInputTarget() const {
             is_structured = true;
         }
 
-        // 音视频格式
+        // Audio/video formats
         if ((data[0] == 'O' && data[1] == 'g' && data[2] == 'g' && data[3] == 'S') || // OGG
             (data[0] == 0x00 && data[1] == 0x00 && data[2] == 0x00 &&
              (data[3] == 0x18 || data[3] == 0x20) && data[4] == 'f' && data[5] == 't' &&
@@ -7120,7 +7120,7 @@ bool triofuzz::FuzzingEngine::detectStructuredInputTarget() const {
             is_structured = true;
         }
 
-        // 检查是否有大量可打印字符（可能是文本格式）
+        // Check for many printable characters (likely text format)
         size_t printable_count = 0;
         size_t check_bytes = std::min(size_t(100), data.size());
         for (size_t j = 0; j < check_bytes; ++j) {
@@ -7129,7 +7129,7 @@ bool triofuzz::FuzzingEngine::detectStructuredInputTarget() const {
             }
         }
         if (printable_count > check_bytes * 0.8) {
-            // 检查是否是结构化文本（JSON, XML, HTML等）
+            // Check if it's structured text (JSON, XML, HTML, etc.)
             std::string start(data.begin(), data.begin() + std::min(size_t(20), data.size()));
             if (start.find("{") != std::string::npos ||
                 start.find("<") != std::string::npos ||
@@ -7141,11 +7141,11 @@ bool triofuzz::FuzzingEngine::detectStructuredInputTarget() const {
         if (is_structured) structured_count++;
     }
 
-    // 如果超过60%的种子是结构化的，认为目标需要结构化输入
+    // If more than 60% of seeds are structured, assume the target needs structured inputs
     return structured_count > check_limit * 0.6;
 }
 
-// 在FuzzingEngine类中添加智能种子初始化
+// Smart seed initialization for FuzzingEngine
 void triofuzz::FuzzingEngine::initializeSmartSeeds() {
     static bool smart_seeds_disabled = (std::getenv("triofuzz_DISABLE_SMART_SEEDS") != nullptr);
     if (smart_seeds_disabled) {
@@ -7164,7 +7164,7 @@ void triofuzz::FuzzingEngine::initializeSmartSeeds() {
     std::mt19937 gen(rd());
     std::uniform_int_distribution<uint8_t> byte_dist(0, 255);
 
-    // 辅助函数：生成指定大小的随机种子，包含多种模式
+    // Helper: generate a random seed of a given size with multiple patterns
     auto generate_seed = [&](size_t size, const std::string& pattern = "mixed") -> std::vector<uint8_t> {
         std::vector<uint8_t> seed(size);
 
@@ -7180,7 +7180,7 @@ void triofuzz::FuzzingEngine::initializeSmartSeeds() {
             for (size_t i = 0; i < size; ++i) {
                 seed[i] = static_cast<uint8_t>(i % 256);
             }
-        } else { // "mixed" - 混合模式
+        } else { // "mixed" - mixed mode
             for (size_t i = 0; i < size; ++i) {
                 seed[i] = byte_dist(gen);
             }
@@ -7189,21 +7189,21 @@ void triofuzz::FuzzingEngine::initializeSmartSeeds() {
         return seed;
     };
 
-    // 1. 极小尺寸 (1-16字节) - 覆盖所有可能性
+    // 1. Tiny sizes (1-16 bytes) - cover all possibilities
     for (size_t size = 1; size <= 16; ++size) {
         basic_seeds.push_back(generate_seed(size, "mixed"));
     }
 
-    // 2. 二的幂次边界及其前后 (重要的内存对齐边界)
+    // 2. Power-of-two boundaries and neighbors (important alignment boundaries)
     std::vector<size_t> power_of_two_sizes = {
-        16, 31, 32, 33,        // 32字节边界
-        63, 64, 65,            // 64字节边界 (缓存行)
-        127, 128, 129,         // 128字节
-        255, 256, 257,         // 256字节
-        511, 512, 513,         // 512字节
+        16, 31, 32, 33,        // 32-byte boundary
+        63, 64, 65,            // 64-byte boundary (cache line)
+        127, 128, 129,         // 128 bytes
+        255, 256, 257,         // 256 bytes
+        511, 512, 513,         // 512 bytes
         1023, 1024, 1025,      // 1KB
         2047, 2048, 2049,      // 2KB
-        4095, 4096, 4097,      // 4KB (页大小)
+        4095, 4096, 4097,      // 4KB (page size)
         8191, 8192, 8193,      // 8KB
         16383, 16384, 16385    // 16KB
     };
@@ -7214,7 +7214,7 @@ void triofuzz::FuzzingEngine::initializeSmartSeeds() {
         }
     }
 
-    // 3. 特殊边界值 (常见的长度检查点)
+    // 3. Special boundary sizes (common length checkpoints)
     std::vector<size_t> special_sizes = {
         3, 7, 15, 17, 24, 31, 47, 63, 95, 127, 191, 250, 255, 300, 500,
         600, 700, 800, 900, 1000, 1100, 1200, 1500, 1800, 2500, 3000,
@@ -7227,7 +7227,7 @@ void triofuzz::FuzzingEngine::initializeSmartSeeds() {
         }
     }
 
-    // 4. 不同模式的种子（每种模式选几个代表性大小）
+    // 4. Patterned seeds (a few representative sizes per pattern)
     std::vector<size_t> pattern_sizes = {1, 8, 64, 256, 1024, 4096};
     std::vector<std::string> patterns = {"zero", "one", "ascii", "inc"};
 
@@ -7239,14 +7239,14 @@ void triofuzz::FuzzingEngine::initializeSmartSeeds() {
         }
     }
 
-    // 5. 随机分布的大小 (填补空白)
+    // 5. Randomly distributed sizes (fill gaps)
     std::uniform_int_distribution<size_t> size_dist(1, std::min<size_t>(config_.max_input_size, 32768));
     for (int i = 0; i < 20; ++i) {
         size_t random_size = size_dist(gen);
         basic_seeds.push_back(generate_seed(random_size, "mixed"));
     }
 
-    // 6. 结构化种子（常见格式）
+    // 6. Structured seeds (common formats)
     // JSON
     std::string json_small = R"({"key":"value"})";
     basic_seeds.emplace_back(json_small.begin(), json_small.end());
@@ -7259,17 +7259,17 @@ void triofuzz::FuzzingEngine::initializeSmartSeeds() {
     std::string xml = "<root><item>test</item></root>";
     basic_seeds.emplace_back(xml.begin(), xml.end());
 
-    // 常见文件头
+    // Common file headers
     basic_seeds.push_back({0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A}); // PNG
     basic_seeds.push_back({0xFF, 0xD8, 0xFF}); // JPEG
     basic_seeds.push_back({0x50, 0x4B, 0x03, 0x04}); // ZIP
     basic_seeds.push_back({'G', 'I', 'F', '8', '9', 'a'}); // GIF89a
     
-    // 添加基础的多样化种子（包含不同大小）
+    // Add basic diverse seeds (across different sizes)
     for (const auto& seed_data : basic_seeds) {
         Seed basic_seed;
         basic_seed.data = seed_data;
-        basic_seed.energy = 1.0; // 普通能量
+        basic_seed.energy = 1.0; // normal energy
         basic_seed.generation = 0;
         basic_seed.created_time = std::chrono::system_clock::now();
         basic_seed.algorithm_history.push_back("basic_initialization");
@@ -7280,41 +7280,41 @@ void triofuzz::FuzzingEngine::initializeSmartSeeds() {
     std::cout << "[INFO] Added " << basic_seeds.size() << " diverse seeds (ranging from 1 byte to 4KB) for algorithm exploration" << std::endl;
 }
 
-// 创建算法组合的辅助方法
+// Helper to create algorithm combinations
 AlgorithmCombination FuzzingEngine::createCombination(const std::vector<std::string>& algorithms, const std::string& mode) {
     AlgorithmCombination combo;
     combo.algorithm_names = algorithms;
     combo.combination_mode = mode;
     
-    // 为加权模式设置智能权重
+    // Set smarter weights for weighted mode
     if (mode == "weighted") {
         double total_weight = 0.0;
         
-        // 为每个算法分配权重
+        // Assign a weight to each algorithm
         for (const auto& algo : algorithms) {
-            double weight = 0.15; // 降低默认权重
+            double weight = 0.15; // lower default weight
 
-            // 基础高效变异算法获得最高权重（使用 AlgorithmConfig 检查）
+            // Basic efficient mutation algorithms get the highest weight (checked via AlgorithmConfig)
             if (AlgoConfig::isEnabled(algo)) {
                 weight = 0.6;
             }
-            // 字典和格式感知算法获得高权重
+            // Dictionary and format-aware algorithms get higher weight
             else if (algo == "smart_dictionary" || algo == "format_aware" || algo == "smart_format") {
                 weight = 0.5;
             }
-            // AI优化算法获得中等权重 - rare_branch, zest, neuzz已归档
+            // AI optimization algorithms get medium weight (rare_branch, zest, neuzz archived)
             // else if (algo == "rare_branch") {
             //     weight = 0.35;
             // }
-            // 梯度下降等优化算法获得中等权重
+            // Optimization algorithms like gradient descent get medium weight
             // else if (algo == "binary_pso" || algo == "gradient_descent") { // archived
             //     weight = 0.3;
             // }
-            // 分析器算法获得较低权重（减少分析开销）
+            // Analyzer algorithms get lower weight (reduce analysis overhead)
             else if (algo.find("analyzer") != std::string::npos) {
                 weight = 0.2;
             }
-            // 结构化算法获得中等权重
+            // Structured algorithms get medium weight
             // else if (algo == "libfuzzer_structured") { // archived
             //     weight = 0.25;
             // } // archived
@@ -7323,7 +7323,7 @@ AlgorithmCombination FuzzingEngine::createCombination(const std::vector<std::str
             total_weight += weight;
         }
         
-        // 归一化权重
+        // Normalize weights
         if (total_weight > 0.0) {
             for (auto& [algo, weight] : combo.weights) {
                 weight /= total_weight;
@@ -7334,7 +7334,7 @@ AlgorithmCombination FuzzingEngine::createCombination(const std::vector<std::str
     return combo;
 }
 
-// 简化的结果处理函数 - 专注于关键路径性能
+// Simplified result processing: focus on critical-path performance
 void triofuzz::FuzzingEngine::processResultFast(const ExecutionResult& result, const Seed& original_seed, const AlgorithmCombination& combination) {
     try {
         // Drain/publish this-thread CmpLog records and update shared context
@@ -7353,19 +7353,19 @@ void triofuzz::FuzzingEngine::processResultFast(const ExecutionResult& result, c
             has_new_coverage = result.coverage.hasNewCoverage() && !result.coverage.new_edges.empty();
         }
         
-        // 改进奖励计算 - 基于是否发现新覆盖率
+        // Improved reward calculation based on whether new coverage is found
         double reward = 0.0;
         double exec_time_ms = result.performance.execution_time_ms;
         bool decoder_success = (result.status == ExecutionResult::Status::Success);
         if (has_new_coverage) {
-            // 修复：简化奖励机制，因为我们只知道有新覆盖，不知道确切数量
-            reward = 0.6;  // 基础新覆盖率奖励
+            // Fix: simplify reward mechanism since we only know new coverage exists, not the exact count
+            reward = 0.6;  // base new-coverage reward
 
-            // 如果覆盖率增益较大，给予额外奖励
+            // If coverage gain is large, give an extra reward
             if (result.coverage.coverage_gain > 0.01) {
-                reward = 0.7;  // 高覆盖率增益
+                reward = 0.7;  // high coverage gain
             } else if (result.coverage.coverage_gain > 0.001) {
-                reward = 0.65;  // 中等覆盖率增益
+                reward = 0.65;  // medium coverage gain
             }
         } else {
             double penalty = -0.02;
@@ -7382,27 +7382,27 @@ void triofuzz::FuzzingEngine::processResultFast(const ExecutionResult& result, c
             reward = penalty;
         }
         if (result.status == ExecutionResult::Status::Crash) {
-            reward += 0.3; // 崩溃奖励
+            reward += 0.3; // crash bonus
         }
 
-        // 确保奖励在合理范围内
+        // Keep reward within a reasonable range
         if (!decoder_success) {
             reward = std::min(reward, -0.1);
         }
         reward = std::clamp(reward, -0.2, 1.0);
         
-        // 快速记录到批次选择器（仅在动态模式下）
+        // Quickly record to the batch selector (dynamic mode only)
         if (batch_selector_ && config_.enable_dynamic_combination) {
             bool crashed = (result.status == ExecutionResult::Status::Crash);
             batch_selector_->recordExecution(reward, has_new_coverage, crashed, decoder_success);
             if (has_new_coverage) {
-                batch_selector_->forceEndBatch(); // 发现新覆盖时快速切换
+                batch_selector_->forceEndBatch(); // Switch quickly on new coverage
             }
         }
 
-        // 即使不在动态模式，也要在发现新覆盖时记录重要发现
+        // Even outside dynamic mode, record important findings when new coverage is found
         // if (has_new_coverage && result.coverage.new_edges.size() > 10) {
-        //     // 发现了大量新覆盖，记录这个组合的成功
+        //     // Lots of new coverage found; record this combination's success
         //     std::cout << "[!] Major coverage breakthrough with "
         //               << result.coverage.new_edges.size() << " new edges using "
         //               << combination.toString() << std::endl;
@@ -7418,32 +7418,32 @@ void triofuzz::FuzzingEngine::processResultFast(const ExecutionResult& result, c
                       << ", combo=" << combination.toString() << std::endl;
         }
         
-        // 只在有新覆盖时处理种子创建
+        // Handle seed creation only when new coverage is found
         if (has_new_coverage && decoder_success) {
-            // 自适应Havoc内部op权重：对本次使用的op进行EMA奖励
+            // Adaptive Havoc internal op weights: apply EMA reward to ops used this run
             try {
                 if (global_context_) {
                     auto ops_opt = global_context_->get<std::vector<int>>("havoc_last_ops");
                     if (ops_opt.has_value()) {
-                        // 取得/初始化EMA数组
+                        // Get/initialize EMA array
                         std::array<double, 12> ema{}; ema.fill(0.0);
                         auto ema_opt = global_context_->get<std::array<double, 12>>("havoc_op_ema");
                         if (ema_opt.has_value()) ema = ema_opt.value();
-                        // 更新所用op的EMA
-                        constexpr double alpha = 0.2; // 学习率
+                        // Update EMA for the ops used
+                        constexpr double alpha = 0.2; // learning rate
                         for (int id : ops_opt.value()) {
                             if (id >= 0 && id < 12) {
                                 ema[id] = (1.0 - alpha) * ema[id] + alpha * 1.0;
                             }
                         }
-                        // 轻量全局衰减（避免长期饥饿），每次成功微弱衰减
+                        // Lightweight global decay (avoid long-term starvation): slight decay on each success
                         for (int i = 0; i < 12; ++i) ema[i] *= 0.995;
-                        // 生成权重（加上最小基线）
+                        // Generate weights (add a minimum baseline)
                         std::array<double, 12> weights;
                         for (int i = 0; i < 12; ++i) weights[i] = 0.1 + ema[i];
                         global_context_->set("havoc_op_ema", ema);
                         global_context_->set("havoc_op_weights", weights);
-                        // 清空本次记录，避免重复记账
+                        // Clear this run's record to avoid double-counting
                         global_context_->set("havoc_last_ops", std::vector<int>{});
                     }
                 }
@@ -7484,37 +7484,37 @@ void triofuzz::FuzzingEngine::processResultFast(const ExecutionResult& result, c
             //    << " (reward: " << std::fixed << std::setprecision(3) << reward << ")\n";
             ThreadSafeLogger::getInstance().logImmediate(ss.str());
             
-            // 快速创建新种子 - 最小化对象创建开销
+            // Fast path: create new seed with minimal object creation overhead
             Seed new_seed;
-            new_seed.data = result.input_data; // 使用变异后的输入，而不是原始种子
+            new_seed.data = result.input_data; // Use mutated input instead of the original seed
             new_seed.coverage = result.coverage;
             new_seed.created_time = std::chrono::system_clock::now();
             new_seed.generation = original_seed.generation + 1;
-            // 修复：基于覆盖率增益设置能量，而不是new_edges数量
+            // Fix: set energy based on coverage gain rather than new_edges count
             if (result.coverage.coverage_gain > 0.01) {
-                new_seed.energy = 2.0;  // 高价值种子
+                new_seed.energy = 2.0;  // high-value seed
             } else if (result.coverage.coverage_gain > 0.001) {
-                new_seed.energy = 1.5;  // 中等价值种子
+                new_seed.energy = 1.5;  // medium-value seed
             } else {
-                new_seed.energy = 1.2;  // 基础新覆盖种子
+                new_seed.energy = 1.2;  // baseline new-coverage seed
             }
             
-            // 直接添加，不进行复杂的历史跟踪
+            // Add directly without complex history tracking
             if (corpus_manager_) {
                 corpus_manager_->addSeed(std::move(new_seed));
             }
             
-            // 原子更新统计
+            // Atomically update stats
             stats_.new_coverage_found.fetch_add(1, std::memory_order_relaxed);
             stats_.last_coverage_time = std::chrono::system_clock::now();
         }
         
-        // 简化崩溃处理
+        // Simplified crash handling
         if (result.status == ExecutionResult::Status::Crash) {
-            // 简单的唯一性检查 - 避免复杂的崩溃分析
+            // Simple uniqueness check to avoid expensive crash analysis
             static thread_local std::unordered_set<size_t> seen_crash_hashes;
             
-            // 使用简单哈希检查唯一性
+            // Use a simple hash to check uniqueness
             std::hash<std::string> hasher;
             std::string crash_sig;
             for (const auto& info : result.crash_info) {
@@ -7525,9 +7525,9 @@ void triofuzz::FuzzingEngine::processResultFast(const ExecutionResult& result, c
             if (seen_crash_hashes.find(crash_hash) == seen_crash_hashes.end()) {
                 seen_crash_hashes.insert(crash_hash);
                 
-                // 快速创建崩溃种子 - 使用变异后的输入而不是原始种子
+                // Fast path: create crash seed using mutated input instead of the original seed
                 Seed crash_seed;
-                crash_seed.data = result.input_data;  // 修复：使用导致崩溃的实际输入
+                crash_seed.data = result.input_data;  // Fix: use the actual input that triggered the crash
                 crash_seed.created_time = std::chrono::system_clock::now();
                 crash_seed.energy = 2.0;
                 
@@ -7535,7 +7535,7 @@ void triofuzz::FuzzingEngine::processResultFast(const ExecutionResult& result, c
                     corpus_manager_->addCrashSeed(std::move(crash_seed));
                 }
                 
-                // 原子更新统计
+                // Atomically update stats
                 stats_.unique_crashes.fetch_add(1, std::memory_order_relaxed);
                 stats_.last_crash_time = std::chrono::system_clock::now();
             }
@@ -7544,7 +7544,7 @@ void triofuzz::FuzzingEngine::processResultFast(const ExecutionResult& result, c
         }
         
     } catch (...) {
-        // 静默处理错误，避免影响fuzzing性能
+        // Handle errors silently to avoid impacting fuzzing performance
     }
 }
 
@@ -7761,7 +7761,7 @@ void FuzzingEngine::maybeCheckpoint() {
 
 } // namespace triofuzz
 
-// 为 collafuzz_interface.cpp 提供的接口函数（在命名空间外）
+// Interface functions for collafuzz_interface.cpp (outside the namespace)
 void resetRealCoverage() {
     triofuzz::RealCoverageCollector::getInstance().resetCoverage();
 }
@@ -7770,7 +7770,7 @@ void clearRealCoverageState() {
     triofuzz::RealCoverageCollector::getInstance().clearCoverageState();
 }
 
-// added：安全关闭覆盖率收集器
+// added: safely shut down the coverage collector
 void shutdownRealCoverageCollector() {
     triofuzz::RealCoverageCollector::getInstance().shutdown();
 }
@@ -7779,23 +7779,23 @@ triofuzz::CoverageInfo getCurrentRealCoverage() {
     return triofuzz::RealCoverageCollector::getInstance().getCurrentCoverage();
 }
 
-// 保存覆盖率边到文件（用于互补性实验）
+// Save covered edges to a file (for complementarity experiments)
 bool saveRealCoverageEdges(const std::string& output_path) {
     return triofuzz::RealCoverageCollector::getInstance().saveCoveredEdgesToFile(output_path);
 }
 
-// 严格模式验证方法实现
+// Strict-mode validation method implementation
 bool triofuzz::FuzzingEngine::validateStrictAlgorithmIsolation() const {
     if (!config_.strict_algorithm_isolation) {
-        return true; // 非严格模式，总是通过验证
+        return true; // Non-strict mode: always passes validation
     }
     
     std::cout << "[STRICT MODE VALIDATION] Checking algorithm isolation..." << std::endl;
     
-    // 获取当前启用的算法
+    // Get currently enabled algorithms
     auto enabled_algorithms = getEnabledAlgorithms();
     
-    // 获取固定组合中指定的算法
+    // Get algorithms specified by the fixed combinations
     std::set<std::string> authorized_algorithms;
     if (!config_.fixed_combination.thread_algorithm_combinations.empty()) {
         for (const auto& thread_combo : config_.fixed_combination.thread_algorithm_combinations) {
@@ -7805,12 +7805,12 @@ bool triofuzz::FuzzingEngine::validateStrictAlgorithmIsolation() const {
         }
     }
     
-    // 检查是否有未经授权的算法被启用
+    // Check for unauthorized enabled algorithms
     std::vector<std::string> unauthorized;
     for (const auto& algo : enabled_algorithms) {
         if (authorized_algorithms.find(algo) == authorized_algorithms.end()) {
-            // 排除一些必要的组合策略算法
-            if (algo != "thompson_sampling") { // angora_strategy已归档
+            // Exclude required combination-strategy algorithms
+            if (algo != "thompson_sampling") { // angora_strategy archived
                 unauthorized.push_back(algo);
             }
         }
@@ -7826,10 +7826,10 @@ bool triofuzz::FuzzingEngine::validateStrictAlgorithmIsolation() const {
         return false;
     }
     
-    // 检查是否禁用了系统算法
+    // Verify system algorithms are disabled
     if (config_.disable_system_algorithms) {
         std::vector<std::string> system_algorithms = {
-            "coverage_analyzer", "crash_analyzer", // performance_analyzer已归档
+            "coverage_analyzer", "crash_analyzer", // performance_analyzer archived
             "corpus_minimizer", "energy_scheduler"
         };
         
@@ -7887,12 +7887,12 @@ std::vector<std::string> triofuzz::FuzzingEngine::getUnauthorizedAlgorithms() co
     std::vector<std::string> unauthorized;
     
     if (!config_.strict_algorithm_isolation) {
-        return unauthorized; // 非严格模式，没有未授权算法
+        return unauthorized; // Non-strict mode: no unauthorized algorithms
     }
     
     auto enabled_algorithms = getEnabledAlgorithms();
     
-    // 获取授权算法列表
+    // Get the authorized algorithm list
     std::set<std::string> authorized_algorithms;
     if (!config_.fixed_combination.thread_algorithm_combinations.empty()) {
         for (const auto& thread_combo : config_.fixed_combination.thread_algorithm_combinations) {
@@ -7902,11 +7902,11 @@ std::vector<std::string> triofuzz::FuzzingEngine::getUnauthorizedAlgorithms() co
         }
     }
     
-    // 添加必要的组合策略算法到授权列表
+    // Add required combination-strategy algorithms to the authorized list
     authorized_algorithms.insert("thompson_sampling");
     // authorized_algorithms.insert("angora_strategy"); // archived
     
-    // 查找未授权的算法
+    // Find unauthorized algorithms
     for (const auto& algo : enabled_algorithms) {
         if (authorized_algorithms.find(algo) == authorized_algorithms.end()) {
             unauthorized.push_back(algo);
@@ -7916,13 +7916,13 @@ std::vector<std::string> triofuzz::FuzzingEngine::getUnauthorizedAlgorithms() co
     return unauthorized;
 }
 
-// added: 打印优化统计信息
+// added: print optimization statistics
 void triofuzz::FuzzingEngine::printOptimizationStats() {
     if (use_optimized_thompson_ && optimized_thompson_) {
         std::cout << "\n=========================================" << std::endl;
         std::cout << "   Optimization Statistics" << std::endl;
         std::cout << "=========================================" << std::endl;
-        // 简化版统计输出 (printStats可能未定义,先用基础输出)
+        // Simplified stats output (printStats may be undefined; use basic output for now)
         std::cout << "OptimizedThompsonSampling is enabled" << std::endl;
         std::cout << "Using 80% fast path + 20% exploration" << std::endl;
         std::cout << "=========================================" << std::endl;

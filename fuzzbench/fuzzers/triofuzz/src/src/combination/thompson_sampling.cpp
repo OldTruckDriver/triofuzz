@@ -435,18 +435,18 @@ private:
         bool has_cmplog = false;
 
         // Classify algorithms by type (simplified)
-        for (const auto& algo_name : combo.algorithm_names) {
-            if (algo_name == "cmplog") {
-                has_cmplog = true;
-                type_counts["constraint_solving"]++;
+	        for (const auto& algo_name : combo.algorithm_names) {
+	            if (algo_name == "cmplog") {
+	                has_cmplog = true;
+	                type_counts["constraint_solving"]++;
             } else if (algo_name.find("mutation") != std::string::npos ||
-                algo_name == "havoc" || algo_name == "bitflip" || algo_name == "arithmetic" ||
-                algo_name == "gradient_descent" || algo_name == "splice" || algo_name == "deterministic" ||
-                algo_name == "smart_dictionary" || algo_name == "rare_branch") { // neuzz, zest, libfuzzer_structured已归档
-                type_counts["mutation"]++;
-            } else if (algo_name.find("analyzer") != std::string::npos ||
-                      algo_name.find("feedback") != std::string::npos) {
-                type_counts["feedback"]++;
+	                algo_name == "havoc" || algo_name == "bitflip" || algo_name == "arithmetic" ||
+	                algo_name == "gradient_descent" || algo_name == "splice" || algo_name == "deterministic" ||
+	                algo_name == "smart_dictionary" || algo_name == "rare_branch") { // neuzz, zest, libfuzzer_structured are archived
+	                type_counts["mutation"]++;
+	            } else if (algo_name.find("analyzer") != std::string::npos ||
+	                      algo_name.find("feedback") != std::string::npos) {
+	                type_counts["feedback"]++;
             } else if (algo_name.find("pso") != std::string::npos ||
                       algo_name.find("optimizer") != std::string::npos) {
                 type_counts["optimization"]++;
@@ -474,37 +474,37 @@ private:
             }
         }
 
-        return bonus;
-    }
+	        return bonus;
+	    }
 
-    // 更新组合的分布参数
-    void updateDistribution(const std::string& combination_str, double reward) {
-        auto& state = combination_states_[combination_str];
-        std::string context = "recovery";  // 恢复场景的特殊上下文
-        state.updateReward(reward, context);
+	    // Update distribution parameters for this combination
+	    void updateDistribution(const std::string& combination_str, double reward) {
+	        auto& state = combination_states_[combination_str];
+	        std::string context = "recovery";  // Special context for the recovery scenario
+	        state.updateReward(reward, context);
 
-        // 如果是显著成功，减少探索率以利用这个成功
-        if (reward > 0.5) {
-            current_epsilon_ = std::max(0.05, current_epsilon_ * 0.9);
-        }
-    }
+	        // If this was a significant success, reduce exploration to exploit it.
+	        if (reward > 0.5) {
+	            current_epsilon_ = std::max(0.05, current_epsilon_ * 0.9);
+	        }
+	    }
 
-    // 提升特定组合的探索权重
-    void boostExplorationFor(const std::string& combination_str) {
-        auto& state = combination_states_[combination_str];
+	    // Boost exploration weight for a specific combination
+	    void boostExplorationFor(const std::string& combination_str) {
+	        auto& state = combination_states_[combination_str];
 
-        // 增加该组合的吸引力
-        state.alpha += 2.0;  // 增加成功计数
+	        // Increase this combination's attractiveness
+	        state.alpha += 2.0;  // Increase success count
 
-        // 临时提高探索率以尝试类似组合
-        current_epsilon_ = std::min(0.5, current_epsilon_ * 1.2);
+	        // Temporarily increase exploration to try similar combinations
+	        current_epsilon_ = std::min(0.5, current_epsilon_ * 1.2);
 
-        // 记录这是一个有潜力的组合
-        if (recent_selections_.size() >= MAX_RECENT_HISTORY) {
-            recent_selections_.pop_front();
-        }
-        recent_selections_.push_back({combination_str, 1.0});  // 高奖励标记
-    }
+	        // Record that this is a promising combination
+	        if (recent_selections_.size() >= MAX_RECENT_HISTORY) {
+	            recent_selections_.pop_front();
+	        }
+	        recent_selections_.push_back({combination_str, 1.0});  // High-reward marker
+	    }
 };
 
 // Global instance declaration

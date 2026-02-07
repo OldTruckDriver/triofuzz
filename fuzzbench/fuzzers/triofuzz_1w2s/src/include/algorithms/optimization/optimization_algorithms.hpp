@@ -14,7 +14,7 @@
 
 namespace triofuzz {
 
-// 优化问题定义
+// Optimization problem definition
 template<typename Solution>
 struct OptimizationProblem {
     using EvaluationFunc = std::function<double(const Solution&)>;
@@ -27,25 +27,25 @@ struct OptimizationProblem {
     CrossoverFunc crossover;
     MutationFunc mutate;
     
-    // 约束条件
+    // Constraints
     std::function<bool(const Solution&)> is_valid;
     
-    // 问题边界
+    // Problem bounds
     Solution lower_bound;
     Solution upper_bound;
 };
 
-// 模拟退火算法
+// Simulated annealing
 template<typename Solution>
 class SimulatedAnnealing : public Algorithm<OptimizationProblem<Solution>, Solution, SharedContext> {
 private:
-    // 退火参数
+    // Annealing parameters
     double initial_temperature_ = 100.0;
     double cooling_rate_ = 0.95;
     double min_temperature_ = 0.01;
     size_t iterations_per_temp_ = 100;
     
-    // 随机数生成器
+    // Random number generator
     std::mt19937 random_gen_{std::random_device{}()};
     
 public:
@@ -62,7 +62,7 @@ public:
     
     Solution execute(const OptimizationProblem<Solution>& problem, SharedContext& ctx) override {
         return this->measureExecution([&]() {
-            // 初始解
+            // Initial solution
             Solution current_solution = problem.lower_bound;
             double current_cost = problem.evaluate(current_solution);
             
@@ -71,13 +71,13 @@ public:
             
             double temperature = initial_temperature_;
             
-            // 退火主循环
+            // Main annealing loop
             while (temperature > min_temperature_) {
                 for (size_t iter = 0; iter < iterations_per_temp_; ++iter) {
-                    // 生成邻居解
+                    // Generate a neighbor solution
                     Solution neighbor = problem.generate_neighbor(current_solution);
                     
-                    // 确保解有效
+                    // Ensure the solution is valid
                     if (problem.is_valid && !problem.is_valid(neighbor)) {
                         continue;
                     }
@@ -85,23 +85,23 @@ public:
                     double neighbor_cost = problem.evaluate(neighbor);
                     double delta = neighbor_cost - current_cost;
                     
-                    // 接受准则
+                    // Acceptance criterion
                     if (delta < 0 || acceptanceProbability(delta, temperature) > randomDouble()) {
                         current_solution = neighbor;
                         current_cost = neighbor_cost;
                         
-                        // 更新最佳解
+                        // Update best solution
                         if (current_cost < best_cost) {
                             best_solution = current_solution;
                             best_cost = current_cost;
                             
-                            // 更新上下文
+                            // Update context
                             updateContext(ctx, best_cost, temperature);
                         }
                     }
                 }
                 
-                // 降温
+                // Cool down
                 temperature *= cooling_rate_;
             }
             
@@ -162,18 +162,18 @@ private:
     }
 };
 
-// 遗传算法
+// Genetic algorithm
 template<typename Solution>
 class GeneticAlgorithm : public Algorithm<OptimizationProblem<Solution>, Solution, SharedContext> {
 private:
-    // GA参数
+    // GA parameters
     size_t population_size_ = 100;
     size_t generations_ = 1000;
     double crossover_rate_ = 0.8;
     double mutation_rate_ = 0.1;
     double elite_ratio_ = 0.1;
     
-    // 选择策略
+    // Selection strategy
     enum class SelectionMethod {
         Tournament,
         RouletteWheel,
@@ -189,7 +189,7 @@ private:
         double fitness;
         
         bool operator<(const Individual& other) const {
-            return fitness < other.fitness; // 假设最小化问题
+            return fitness < other.fitness; // Assumes a minimization problem
         }
     };
     
@@ -207,21 +207,21 @@ public:
     
     Solution execute(const OptimizationProblem<Solution>& problem, SharedContext& ctx) override {
         return this->measureExecution([&]() {
-            // 初始化种群
+            // Initialize population
             std::vector<Individual> population = initializePopulation(problem);
             
             Solution best_solution = population[0].solution;
             double best_fitness = population[0].fitness;
             
-            // 进化主循环
+            // Main evolution loop
             for (size_t gen = 0; gen < generations_; ++gen) {
-                // 评估种群
+                // Evaluate population
                 evaluatePopulation(population, problem);
                 
-                // 排序（精英保留）
+                // Sort (elitism)
                 std::sort(population.begin(), population.end());
                 
-                // 更新最佳解
+                // Update best solution
                 if (population[0].fitness < best_fitness) {
                     best_solution = population[0].solution;
                     best_fitness = population[0].fitness;
@@ -229,35 +229,35 @@ public:
                     updateContext(ctx, best_fitness, gen);
                 }
                 
-                // 生成新种群
+                // Generate new population
                 std::vector<Individual> new_population;
                 
-                // 精英保留
+                // Elitism
                 size_t elite_count = static_cast<size_t>(population_size_ * elite_ratio_);
                 for (size_t i = 0; i < elite_count; ++i) {
                     new_population.push_back(population[i]);
                 }
                 
-                // 繁殖
+                // Reproduction
                 while (new_population.size() < population_size_) {
                     Individual parent1 = select(population);
                     Individual parent2 = select(population);
                     
                     Individual offspring;
                     
-                    // 交叉
+                    // Crossover
                     if (randomDouble() < crossover_rate_) {
                         offspring.solution = problem.crossover(parent1.solution, parent2.solution);
                     } else {
                         offspring.solution = randomDouble() < 0.5 ? parent1.solution : parent2.solution;
                     }
                     
-                    // 变异
+                    // Mutation
                     if (randomDouble() < mutation_rate_) {
                         offspring.solution = problem.mutate(offspring.solution);
                     }
                     
-                    // 确保解有效
+                    // Ensure the solution is valid
                     if (!problem.is_valid || problem.is_valid(offspring.solution)) {
                         new_population.push_back(offspring);
                     }
@@ -312,7 +312,7 @@ private:
         
         for (size_t i = 0; i < population_size_; ++i) {
             Individual ind;
-            // 随机初始化（应该根据具体问题定制）
+            // Random initialization (should be customized for the specific problem)
             ind.solution = problem.generate_neighbor(problem.lower_bound);
             population.push_back(ind);
         }
@@ -358,7 +358,7 @@ private:
     }
     
     Individual rouletteWheelSelection(const std::vector<Individual>& population) {
-        // 计算适应度总和（转换为正值）
+        // Compute total fitness (shift to positive values)
         double min_fitness = std::numeric_limits<double>::max();
         for (const auto& ind : population) {
             min_fitness = std::min(min_fitness, ind.fitness);
@@ -369,7 +369,7 @@ private:
             total_fitness += (min_fitness - ind.fitness + 1.0);
         }
         
-        // 轮盘赌选择
+        // Roulette-wheel selection
         std::uniform_real_distribution<double> dist(0.0, total_fitness);
         double random_point = dist(random_gen_);
         
@@ -385,7 +385,7 @@ private:
     }
     
     Individual rankSelection(const std::vector<Individual>& population) {
-        // 基于排名的选择（线性排名）
+        // Rank-based selection (linear ranking)
         double rank_sum = (population.size() * (population.size() + 1)) / 2.0;
         std::uniform_real_distribution<double> dist(0.0, rank_sum);
         double random_point = dist(random_gen_);
@@ -415,11 +415,11 @@ private:
     }
 };
 
-// 粒子群优化算法
+// Particle swarm optimization
 template<typename Solution>
 class ParticleSwarmOptimization : public Algorithm<OptimizationProblem<Solution>, Solution, SharedContext> {
 private:
-    // PSO参数
+    // PSO parameters
     size_t swarm_size_ = 50;
     size_t max_iterations_ = 1000;
     double inertia_weight_ = 0.729;
@@ -451,25 +451,25 @@ public:
     
     Solution execute(const OptimizationProblem<Solution>& problem, SharedContext& ctx) override {
         return this->measureExecution([&]() {
-            // 初始化粒子群
+            // Initialize swarm
             std::vector<Particle> swarm = initializeSwarm(problem);
             
             Solution global_best = swarm[0].position;
             double global_best_fitness = swarm[0].fitness;
             
-            // PSO主循环
+            // Main PSO loop
             for (size_t iter = 0; iter < max_iterations_; ++iter) {
-                // 评估粒子
+                // Evaluate particles
                 for (auto& particle : swarm) {
                     particle.fitness = problem.evaluate(particle.position);
                     
-                    // 更新个体最优
+                    // Update personal best
                     if (particle.fitness < particle.personal_best_fitness) {
                         particle.personal_best = particle.position;
                         particle.personal_best_fitness = particle.fitness;
                     }
                     
-                    // 更新全局最优
+                    // Update global best
                     if (particle.fitness < global_best_fitness) {
                         global_best = particle.position;
                         global_best_fitness = particle.fitness;
@@ -478,12 +478,12 @@ public:
                     }
                 }
                 
-                // 更新粒子速度和位置
+                // Update particle velocity and position
                 for (auto& particle : swarm) {
                     updateParticle(particle, global_best, problem);
                 }
                 
-                // 动态调整惯性权重
+                // Dynamically adjust inertia weight
                 inertia_weight_ = 0.9 - (0.5 * iter / max_iterations_);
             }
             
@@ -541,9 +541,9 @@ private:
         for (size_t i = 0; i < swarm_size_; ++i) {
             Particle particle;
             
-            // 随机初始化位置
+            // Randomly initialize position
             particle.position = problem.generate_neighbor(problem.lower_bound);
-            particle.velocity = Solution{}; // 零速度开始
+            particle.velocity = Solution{}; // Start with zero velocity
             particle.personal_best = particle.position;
             particle.fitness = problem.evaluate(particle.position);
             particle.personal_best_fitness = particle.fitness;
@@ -556,40 +556,40 @@ private:
     
     void updateParticle(Particle& particle, const Solution& global_best,
                        const OptimizationProblem<Solution>& problem) {
-        // PSO速度更新公式
+        // PSO velocity update formula
         // v = w*v + c1*r1*(pbest - x) + c2*r2*(gbest - x)
         
         std::uniform_real_distribution<double> dist(0.0, 1.0);
         double r1 = dist(random_gen_);
         double r2 = dist(random_gen_);
         
-        // 这里需要Solution类型支持向量运算
-        // 简化示例，实际实现需要根据Solution类型定制
+        // The Solution type must support vector operations here.
+        // Simplified example; real implementation should be specialized for the Solution type.
         updateVelocity(particle.velocity, particle.position, 
                       particle.personal_best, global_best,
                       inertia_weight_, cognitive_weight_ * r1, social_weight_ * r2);
         
-        // 速度限制
+        // Velocity clamp
         clampVelocity(particle.velocity);
         
-        // 更新位置
+        // Update position
         updatePosition(particle.position, particle.velocity, problem);
     }
     
     void updateVelocity(Solution& velocity, const Solution& position,
                        const Solution& personal_best, const Solution& global_best,
                        double inertia, double cognitive, double social) {
-        // 实际实现需要根据Solution类型定制
-        // 这里是概念性的伪代码
+        // Real implementation should be specialized for the Solution type.
+        // This is conceptual pseudocode.
     }
     
     void clampVelocity(Solution& velocity) {
-        // 限制速度在合理范围内
+        // Clamp velocity to a reasonable range.
     }
     
     void updatePosition(Solution& position, const Solution& velocity,
                        const OptimizationProblem<Solution>& problem) {
-        // 更新位置并确保在边界内
+        // Update position and keep it within bounds.
     }
     
     void updateContext(SharedContext& ctx, double best_fitness, size_t iteration) {
@@ -617,7 +617,7 @@ void ParticleSwarmOptimization<std::vector<double>>::updatePosition(
     std::vector<double>& position, const std::vector<double>& velocity,
     const OptimizationProblem<std::vector<double>>& problem);
 
-// 针对Fuzzing的特化：种子能量优化
+// Fuzzing specialization: seed energy optimization
 class SeedEnergyOptimizer {
 private:
     std::unique_ptr<SimulatedAnnealing<std::vector<double>>> sa_optimizer_;
@@ -627,7 +627,7 @@ public:
         sa_optimizer_ = std::make_unique<SimulatedAnnealing<std::vector<double>>>();
     }
     
-    // 优化种子能量分配
+    // Optimize seed energy allocation
     std::vector<double> optimizeEnergy(const std::vector<Seed>& seeds, SharedContext& ctx);
 };
 

@@ -19,7 +19,7 @@
 namespace collafuzz {
 namespace crash_tracker {
 
-// 信号名称映射
+// Signal name mapping
 static const std::map<int, std::string> signal_names = {
     {SIGSEGV, "SIGSEGV (Segmentation fault)"},
     {SIGABRT, "SIGABRT (Abort - likely sanitizer)"},
@@ -31,7 +31,7 @@ static const std::map<int, std::string> signal_names = {
     {SIGTERM, "SIGTERM (Terminated)"}
 };
 
-// 静态实例指针和信号处理函数
+// Static instance pointer and signal handler
 static EnhancedCrashTracker* g_tracker_instance = nullptr;
 
 static void enhanced_signal_handler(int sig, siginfo_t* info, void* context) {
@@ -39,28 +39,28 @@ static void enhanced_signal_handler(int sig, siginfo_t* info, void* context) {
         g_tracker_instance->handleCrash(sig, info, context);
     }
     
-    // 调用原始信号处理器
+    // Fall back to the default signal handler
     signal(sig, SIG_DFL);
     raise(sig);
 }
 
-// 单例获取
+// Singleton accessor
 EnhancedCrashTracker& EnhancedCrashTracker::getInstance() {
     static EnhancedCrashTracker instance;
     return instance;
 }
 
-// 安全关闭
+// Safe shutdown
 void EnhancedCrashTracker::shutdown() {
     std::lock_guard<std::mutex> lock(shutdown_mutex_);
     shutting_down_ = true;
     
-    // 等待任何正在进行的信号处理完成
+    // Wait for any in-progress signal handling to complete
     while (in_signal_handler_.load()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     
-    // 清理资源
+    // Clean up resources
     {
         std::lock_guard<std::mutex> input_lock(input_mutex_);
         current_input_.clear();
@@ -77,7 +77,7 @@ bool EnhancedCrashTracker::isShuttingDown() const {
     return shutting_down_.load();
 }
 
-// 安全的输入数据访问
+// Safe access to input data
 std::vector<uint8_t> EnhancedCrashTracker::getCurrentInputSafe() const {
     if (shutting_down_.load()) {
         return {};
@@ -96,23 +96,23 @@ std::string EnhancedCrashTracker::getCurrentInputFileSafe() const {
     return current_input_file_;
 }
 
-// 初始化crash追踪器
+// Initialize crash tracker
 void EnhancedCrashTracker::initialize() {
     if (initialized_) return;
     
     g_tracker_instance = this;
     output_directory_ = "output/crashes";
     
-    // 创建输出目录
+    // Create output directory
     system(("mkdir -p " + output_directory_).c_str());
     
-    // 设置信号处理器
+    // Set up signal handler
     struct sigaction sa;
     sa.sa_sigaction = enhanced_signal_handler;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_SIGINFO | SA_RESTART;
     
-    // 注册信号处理器
+    // Register signal handlers
     int signals[] = {SIGSEGV, SIGABRT, SIGFPE, SIGILL, SIGBUS, SIGTRAP};
     for (int sig : signals) {
         sigaction(sig, &sa, &old_sigaction_[sig]);
@@ -121,14 +121,14 @@ void EnhancedCrashTracker::initialize() {
     initialized_ = true;
 }
 
-// 设置当前输入数据
+// Set current input data
 void EnhancedCrashTracker::setCurrentInput(const std::vector<uint8_t>& input) {
     if (shutting_down_.load()) {
-        return; // 如果正在关闭，忽略设置请求
+        return; // If shutting down, ignore the request
     }
     
     std::lock_guard<std::mutex> lock(input_mutex_);
-    if (!shutting_down_.load()) { // 双重检查
+    if (!shutting_down_.load()) { // Double-check
         current_input_ = input;
         current_input_file_.clear();
     }
@@ -136,14 +136,14 @@ void EnhancedCrashTracker::setCurrentInput(const std::vector<uint8_t>& input) {
 
 void EnhancedCrashTracker::setCurrentInputFile(const std::string& file_path) {
     if (shutting_down_.load()) {
-        return; // 如果正在关闭，忽略设置请求
+        return; // If shutting down, ignore the request
     }
     
     std::lock_guard<std::mutex> lock(input_mutex_);
-    if (!shutting_down_.load()) { // 双重检查
+    if (!shutting_down_.load()) { // Double-check
         current_input_file_ = file_path;
         
-        // 读取文件内容
+        // Read file contents
         std::ifstream file(file_path, std::ios::binary);
         if (file) {
             current_input_ = std::vector<uint8_t>(
@@ -154,7 +154,7 @@ void EnhancedCrashTracker::setCurrentInputFile(const std::string& file_path) {
     }
 }
 
-// 设置运行环境
+// Set runtime environment
 void EnhancedCrashTracker::setCommandLineArgs(int argc, char* argv[]) {
     command_line_args_.clear();
     for (int i = 0; i < argc; ++i) {
@@ -170,21 +170,21 @@ void EnhancedCrashTracker::setWorkingDirectory(const std::string& dir) {
     working_directory_ = dir;
 }
 
-// 主要的crash处理函数
+// Main crash handling function
 void EnhancedCrashTracker::handleCrash(int signal, siginfo_t* info, void* context) {
-    // 防止在程序退出时处理crash
+    // Avoid handling crashes during shutdown
     if (shutting_down_.load()) {
         return;
     }
     
-    // 设置信号处理状态标志，防止重入
+    // Set signal-handling state flag to prevent reentrancy
     bool expected = false;
     if (!in_signal_handler_.compare_exchange_strong(expected, true)) {
-        // 已经在处理信号，避免递归
+        // Already handling a signal; avoid recursion
         return;
     }
     
-    // RAII方式确保退出时清理标志
+    // Use RAII to ensure the flag is cleared on exit
     struct SignalHandlerGuard {
         std::atomic<bool>& flag;
         SignalHandlerGuard(std::atomic<bool>& f) : flag(f) {}
@@ -193,7 +193,7 @@ void EnhancedCrashTracker::handleCrash(int signal, siginfo_t* info, void* contex
     
     CrashInfo crash;
     
-    // 基本信息
+    // Basic information
     crash.signal_number = signal;
     auto it = signal_names.find(signal);
     crash.signal_name = (it != signal_names.end()) ? it->second : "Unknown signal";
@@ -201,7 +201,7 @@ void EnhancedCrashTracker::handleCrash(int signal, siginfo_t* info, void* contex
     crash.process_id = getpid();
     crash.binary_path = binary_path_;
     
-    // 故障详情
+    // Fault details
     crash.fault_address = info->si_addr;
     crash.instruction_pointer = nullptr;
     
@@ -212,7 +212,7 @@ void EnhancedCrashTracker::handleCrash(int signal, siginfo_t* info, void* contex
     }
     #endif
     
-    // 分析故障类型
+    // Analyze fault type
     if (crash.fault_address == nullptr) {
         crash.fault_type = "NULL pointer dereference";
     } else if ((uintptr_t)crash.fault_address < 0x1000) {
@@ -223,61 +223,61 @@ void EnhancedCrashTracker::handleCrash(int signal, siginfo_t* info, void* contex
         crash.fault_type = "Memory access violation";
     }
     
-    // 输入数据 - 使用安全的访问方法
+    // Input data - use safe access method
     std::vector<uint8_t> input_copy = getCurrentInputSafe();
     crash.crash_input = input_copy;
     crash.input_size = input_copy.size();
     crash.input_hash = calculateInputHash(input_copy);
     
-    // 堆栈跟踪
+    // Stack trace
     crash.stack_trace = getStackTrace(context);
-    crash.symbolized_trace = ""; // 将在getStackTrace中填充
+    crash.symbolized_trace = ""; // Filled in getStackTrace
     
-    // 系统环境
+    // System environment
     crash.command_line_args = command_line_args_;
     crash.environment_vars = getEnvironmentVariables();
     crash.working_directory = working_directory_;
     
-    // 内存信息
+    // Memory information
     crash.memory_maps = getMemoryMaps();
     crash.registers_dump = getRegistersDump(context);
     crash.loaded_libraries = getLoadedLibraries();
     
-    // 构建信息
+    // Build information
     crash.build_version = getBuildInformation();
     
-    // 分析crash
+    // Analyze crash
     crash.crash_category = categorizeCrash(crash);
     crash.exploitability = assessExploitability(crash);
     crash.is_unique_crash = isUniqueCrash(crash);
     
-    // 安全分析
+    // Security analysis
     crash.potential_cve = checkForKnownCVEs(crash);
     crash.security_impact = analyzeSecurityImpact(crash);
     
-    // 保存crash报告
+    // Save crash report
     saveCrashReport(crash);
     
-    // 生成复现工具
+    // Generate reproduction helpers
     generateReproductionScript(crash);
     generateGdbScript(crash);
     
-    // 添加到历史记录
+    // Add to history
     if (!shutting_down_.load()) {
         std::lock_guard<std::mutex> lock(history_mutex_);
-        if (!shutting_down_.load()) { // 双重检查
+        if (!shutting_down_.load()) { // Double-check
             crash_history_.push_back(crash);
         }
     }
 }
 
-// 获取堆栈跟踪
+// Get stack trace
 std::vector<std::string> EnhancedCrashTracker::getStackTrace(void* context) {
     std::vector<std::string> trace;
     void* array[256];
     size_t size;
     
-    // 获取堆栈地址
+    // Get stack addresses
     size = backtrace(array, 256);
     char** messages = backtrace_symbols(array, size);
     
@@ -285,7 +285,7 @@ std::vector<std::string> EnhancedCrashTracker::getStackTrace(void* context) {
         for (size_t i = 0; i < size; ++i) {
             std::string frame = messages[i];
             
-            // 尝试解析符号名
+            // Try to symbolize the address
             std::string symbolized = symbolizeAddress(array[i]);
             if (!symbolized.empty()) {
                 frame += " -> " + symbolized;
@@ -299,7 +299,7 @@ std::vector<std::string> EnhancedCrashTracker::getStackTrace(void* context) {
     return trace;
 }
 
-// 符号化地址
+// Symbolize address
 std::string EnhancedCrashTracker::symbolizeAddress(void* addr) {
     Dl_info info;
     if (dladdr(addr, &info) && info.dli_sname) {
@@ -314,7 +314,7 @@ std::string EnhancedCrashTracker::symbolizeAddress(void* addr) {
             result = info.dli_sname;
         }
         
-        // 添加偏移量
+        // Append offset
         if (info.dli_saddr) {
             uintptr_t offset = (uintptr_t)addr - (uintptr_t)info.dli_saddr;
             result += "+0x" + std::to_string(offset);
@@ -326,7 +326,7 @@ std::string EnhancedCrashTracker::symbolizeAddress(void* addr) {
     return "";
 }
 
-// 获取内存映射
+// Get memory maps
 std::string EnhancedCrashTracker::getMemoryMaps() {
     std::ifstream maps("/proc/self/maps");
     std::stringstream ss;
@@ -339,7 +339,7 @@ std::string EnhancedCrashTracker::getMemoryMaps() {
     return ss.str();
 }
 
-// 获取寄存器转储
+// Get register dump
 std::string EnhancedCrashTracker::getRegistersDump(void* context) {
     std::stringstream ss;
     
@@ -363,7 +363,7 @@ std::string EnhancedCrashTracker::getRegistersDump(void* context) {
     return ss.str();
 }
 
-// 获取加载的库
+// Get loaded libraries
 std::vector<std::string> EnhancedCrashTracker::getLoadedLibraries() {
     std::vector<std::string> libraries;
     std::ifstream maps("/proc/self/maps");
@@ -385,7 +385,7 @@ std::vector<std::string> EnhancedCrashTracker::getLoadedLibraries() {
     return libraries;
 }
 
-// 获取构建信息
+// Get build information
 std::string EnhancedCrashTracker::getBuildInformation() {
     std::stringstream ss;
     ss << "Compiler: " << __VERSION__ << "\n";
@@ -402,11 +402,11 @@ std::string EnhancedCrashTracker::getBuildInformation() {
     return ss.str();
 }
 
-// 计算输入哈希 (使用 FNV-1a 算法，无需外部依赖)
+// Compute input hash (FNV-1a; no external dependencies)
 std::string EnhancedCrashTracker::calculateInputHash(const std::vector<uint8_t>& input) {
     if (input.empty()) return "empty_input";
 
-    // FNV-1a 64-bit hash - 快速且分布均匀，适合 fingerprinting
+    // FNV-1a 64-bit hash - fast and well-distributed; suitable for fingerprinting
     const uint64_t FNV_OFFSET_BASIS = 14695981039346656037ULL;
     const uint64_t FNV_PRIME = 1099511628211ULL;
 
@@ -422,11 +422,11 @@ std::string EnhancedCrashTracker::calculateInputHash(const std::vector<uint8_t>&
     return ss.str();
 }
 
-// 获取环境变量
+// Get environment variables
 std::map<std::string, std::string> EnhancedCrashTracker::getEnvironmentVariables() {
     std::map<std::string, std::string> env_vars;
     
-    // 只保存重要的环境变量
+    // Only keep important environment variables
     const char* important_vars[] = {
         "PATH", "LD_LIBRARY_PATH", "HOME", "USER", "SHELL",
         "ASAN_OPTIONS", "UBSAN_OPTIONS", "MSAN_OPTIONS"
@@ -442,7 +442,7 @@ std::map<std::string, std::string> EnhancedCrashTracker::getEnvironmentVariables
     return env_vars;
 }
 
-// 保存输入到文件
+// Save input to file
 std::string EnhancedCrashTracker::saveInputToFile(const std::vector<uint8_t>& input) {
     std::string filename = output_directory_ + "/crash_input_" + 
                           std::to_string(time(nullptr)) + "_" + 
@@ -456,7 +456,7 @@ std::string EnhancedCrashTracker::saveInputToFile(const std::vector<uint8_t>& in
     return filename;
 }
 
-// 分类crash
+// Categorize crash
 std::string EnhancedCrashTracker::categorizeCrash(const CrashInfo& crash) {
     if (crash.signal_number == SIGSEGV) {
         if (crash.fault_address == nullptr) {
@@ -467,7 +467,7 @@ std::string EnhancedCrashTracker::categorizeCrash(const CrashInfo& crash) {
             return "MEMORY_CORRUPTION";
         }
     } else if (crash.signal_number == SIGABRT) {
-        // 检查堆栈中是否有sanitizer信息
+        // Check whether the stack trace contains sanitizer frames
         for (const auto& frame : crash.stack_trace) {
             if (frame.find("__asan") != std::string::npos ||
                 frame.find("__ubsan") != std::string::npos) {
@@ -480,20 +480,20 @@ std::string EnhancedCrashTracker::categorizeCrash(const CrashInfo& crash) {
     return "UNKNOWN";
 }
 
-// 评估可利用性
+// Assess exploitability
 std::string EnhancedCrashTracker::assessExploitability(const CrashInfo& crash) {
     int score = 0;
     
-    // 基于信号类型
+    // Based on signal type
     if (crash.signal_number == SIGSEGV) score += 3;
     else if (crash.signal_number == SIGABRT) score += 1;
     
-    // 基于故障地址
+    // Based on fault address
     if (crash.fault_address != nullptr && (uintptr_t)crash.fault_address > 0x1000) {
-        score += 2; // 可能的内存损坏
+        score += 2; // Possible memory corruption
     }
     
-    // 检查是否在关键函数中
+    // Check whether the crash occurred in critical functions
     for (const auto& frame : crash.stack_trace) {
         if (frame.find("memcpy") != std::string::npos ||
             frame.find("strcpy") != std::string::npos ||
@@ -503,7 +503,7 @@ std::string EnhancedCrashTracker::assessExploitability(const CrashInfo& crash) {
         }
     }
     
-    // 输入大小影响
+    // Input-size factor
     if (crash.input_size > 0) score += 1;
     
     if (score >= 5) return "HIGH";
@@ -511,15 +511,15 @@ std::string EnhancedCrashTracker::assessExploitability(const CrashInfo& crash) {
     else return "LOW";
 }
 
-// 检查是否为唯一crash
+// Check whether the crash is unique
 bool EnhancedCrashTracker::isUniqueCrash(const CrashInfo& crash) {
     if (shutting_down_.load()) {
-        return true; // 在关闭时假设是唯一的，避免复杂检查
+        return true; // During shutdown, assume uniqueness to avoid expensive checks
     }
     
     std::lock_guard<std::mutex> lock(history_mutex_);
     if (shutting_down_.load()) {
-        return true; // 双重检查
+        return true; // Double-check
     }
     
     for (const auto& prev_crash : crash_history_) {
@@ -532,9 +532,9 @@ bool EnhancedCrashTracker::isUniqueCrash(const CrashInfo& crash) {
     return true;
 }
 
-// 检查已知CVE
+// Check known CVEs
 std::string EnhancedCrashTracker::checkForKnownCVEs(const CrashInfo& crash) {
-    // 检查FreeType相关crash
+    // Check for FreeType-related crashes
     for (const auto& frame : crash.stack_trace) {
         if (frame.find("FT_") != std::string::npos ||
             frame.find("freetype") != std::string::npos) {
@@ -545,7 +545,7 @@ std::string EnhancedCrashTracker::checkForKnownCVEs(const CrashInfo& crash) {
     return "No known CVE detected";
 }
 
-// 分析安全影响
+// Analyze security impact
 std::string EnhancedCrashTracker::analyzeSecurityImpact(const CrashInfo& crash) {
     std::stringstream ss;
     
@@ -563,7 +563,7 @@ std::string EnhancedCrashTracker::analyzeSecurityImpact(const CrashInfo& crash) 
     return ss.str();
 }
 
-// 生成crash报告
+// Generate crash report
 std::string EnhancedCrashTracker::generateCrashReport(const CrashInfo& crash) {
     std::stringstream ss;
     
@@ -624,24 +624,24 @@ std::string EnhancedCrashTracker::generateCrashReport(const CrashInfo& crash) {
     return ss.str();
 }
 
-// 保存crash报告
+// Save crash report
 void EnhancedCrashTracker::saveCrashReport(const CrashInfo& crash) {
     std::string base_filename = output_directory_ + "/crash_enhanced_" + 
                                std::to_string(crash.signal_number) + "_" + 
                                std::to_string(crash.timestamp);
     
-    // 保存主报告
+    // Save main report
     std::ofstream report_file(base_filename + "_report.txt");
     report_file << generateCrashReport(crash);
     
-    // 保存输入数据
+    // Save input data
     std::string input_file = saveInputToFile(crash.crash_input);
     
-    // 保存内存映射
+    // Save memory maps
     std::ofstream maps_file(base_filename + "_maps.txt");
     maps_file << crash.memory_maps;
     
-    // 创建快速复现信息文件
+    // Create a quick reproduction info file
     std::ofstream quick_file(base_filename + "_quick.txt");
     quick_file << "=== Quick Reproduction Info ===\n";
     quick_file << "Input file: " << input_file << "\n";
@@ -653,7 +653,7 @@ void EnhancedCrashTracker::saveCrashReport(const CrashInfo& crash) {
     }
 }
 
-// 生成复现脚本
+// Generate reproduction script
 void EnhancedCrashTracker::generateReproductionScript(const CrashInfo& crash) {
     std::string script_filename = output_directory_ + "/reproduce_crash_" + 
                                  std::to_string(crash.timestamp) + ".sh";
@@ -705,11 +705,11 @@ void EnhancedCrashTracker::generateReproductionScript(const CrashInfo& crash) {
     script << "echo \"📋 Input size: " << crash.input_size << " bytes\"\n";
     script << "echo \"📋 Input file: " << input_filename << "\"\n";
     
-    // 添加执行权限
+    // Add execute permission
     system(("chmod +x " + script_filename).c_str());
 }
 
-// 生成GDB脚本
+// Generate GDB script
 void EnhancedCrashTracker::generateGdbScript(const CrashInfo& crash) {
     std::string gdb_filename = output_directory_ + "/gdb_crash_" + 
                               std::to_string(crash.timestamp) + ".gdb";

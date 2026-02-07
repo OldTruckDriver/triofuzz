@@ -401,13 +401,19 @@ struct FuzzingConfig {
     double corpus_bloat_threshold = 0.8;
     bool enable_aggressive_cleanup = false;
 
-    // Specialized thread engine configuration
-    bool use_specialized_threads = true;  // Enable specialized thread architecture
-    size_t scheduler_threads = 1;          // Number of scheduler threads (typically 1)
-    size_t explorer_threads = 1;           // Number of explorer threads
-    double exploration_ratio = 0.1;        // Exploration ratio
-    bool enable_adaptive_scheduling = true; // Adaptive scheduling
-    size_t batch_size_for_specialized = 1000;  // Batch size for specialized threads
+	    // Specialized thread engine configuration
+	    bool use_specialized_threads = true;  // Enable specialized thread architecture
+	    size_t scheduler_threads = 1;          // Number of scheduler threads (typically 1)
+	    size_t explorer_threads = 1;           // Number of explorer threads
+	    // Optional explicit thread allocation overrides for specialized thread engine.
+	    // When set, these override the default heuristic split of (thread_count - 1)
+	    // into workers and explorers (the scheduler thread is always 1).
+	    // Note: allow 0 explorers for worker-only configurations.
+	    std::optional<size_t> worker_threads_override;
+	    std::optional<size_t> explorer_threads_override;
+	    double exploration_ratio = 0.1;        // Exploration ratio
+	    bool enable_adaptive_scheduling = true; // Adaptive scheduling
+	    size_t batch_size_for_specialized = 1000;  // Batch size for specialized threads
     // Micro-batch configuration (specialized thread engine only)
     size_t micro_batch_workers = 1;        // Consecutive executions per worker thread (>=1)
     size_t micro_batch_explorers = 8;      // Consecutive executions per explorer thread (>=1)

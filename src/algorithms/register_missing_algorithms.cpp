@@ -1,16 +1,16 @@
-// 快速补丁：注册所有缺失的算法
-// 这是一个临时解决方案，用于快速修复硬编码算法和注册系统不一致的问题
+// Quick patch: register all missing algorithms
+// Temporary solution to quickly fix inconsistencies between hard-coded algorithms and the registry.
 
 #include "../../include/algorithms/algorithm_registry.hpp"
 #include "../../include/algorithms/mutation/havoc_mutation.hpp"
 #include "../../include/algorithms/mutation/bitflip_mutation.hpp"
 #include "../../include/algorithms/mutation/arithmetic_mutation.hpp"
-// #include "../../include/algorithms/mutation/gradient_descent_mutation.hpp" // 已归档 - 高开销
+// #include "../../include/algorithms/mutation/gradient_descent_mutation.hpp" // Archived - high overhead
 #include "../../include/algorithms/mutation/smart_dictionary_mutation.hpp"
 
 namespace triofuzz {
 
-// 算法包装器：将调度器伪装成变异算法
+// Algorithm wrapper: present a scheduler as a mutation algorithm
 class SchedulerAsAlgorithm : public AlgorithmBase {
 protected:
     std::shared_ptr<AlgorithmBase> underlying_mutation_;
@@ -21,7 +21,7 @@ public:
         : scheduler_type_(scheduler_type), underlying_mutation_(mutation) {}
 
     std::vector<uint8_t> execute(const std::vector<uint8_t>& input, GlobalContext& context) override {
-        // 调度器实际上只是选择合适的变异算法
+        // The scheduler only selects an appropriate mutation algorithm.
         return underlying_mutation_->execute(input, context);
     }
 
@@ -37,33 +37,33 @@ public:
     }
 };
 
-// 运行时字典变异（SmartDictionary的变体）
+// Runtime dictionary mutation (a variant of SmartDictionary)
 class RuntimeDictionaryMutation : public SmartDictionaryMutation {
 public:
     RuntimeDictionaryMutation() : SmartDictionaryMutation("") {}
     std::string getName() const override { return "runtime_dictionary"; }
 };
 
-// 自适应长度变异
+// Adaptive length mutation
 class AdaptiveLengthMutation : public HavocMutation {
 public:
     std::string getName() const override { return "adaptive_length"; }
 
     std::vector<uint8_t> execute(const std::vector<uint8_t>& input, GlobalContext& context) override {
-        // 自适应调整输入长度的特殊逻辑
+        // Special logic to adaptively adjust input length
         auto result = input;
 
-        // 50% 概率增长，50% 概率缩短
+        // 50% chance to grow, 50% chance to shrink
         std::random_device rd;
         std::mt19937 gen(rd());
         std::uniform_int_distribution<> choice(0, 1);
 
         if (choice(gen) == 0 && result.size() > 1) {
-            // 缩短
+            // Shrink
             std::uniform_int_distribution<size_t> len_dist(1, result.size());
             result.resize(len_dist(gen));
         } else {
-            // 增长
+            // Grow
             std::uniform_int_distribution<size_t> grow_dist(1, 100);
             size_t grow_size = grow_dist(gen);
             std::uniform_int_distribution<uint8_t> val_dist(0, 255);
@@ -72,27 +72,27 @@ public:
             }
         }
 
-        // 然后应用基础havoc变异
+        // Then apply the base havoc mutation
         return HavocMutation::execute(result, context);
     }
 };
 
-// 值逼近变异
+// Value approximation mutation
 class ValueApproximationMutation : public ArithmeticMutation {
 public:
     std::string getName() const override { return "value_approximation"; }
 
     std::vector<uint8_t> execute(const std::vector<uint8_t>& input, GlobalContext& context) override {
-        // 尝试逼近特定的值（如魔术数字）
+        // Try to approximate specific values (e.g., magic numbers)
         auto result = input;
         if (result.size() >= 4) {
-            // 检查并尝试生成常见的魔术数字
+            // Try generating common magic numbers
             std::random_device rd;
             std::mt19937 gen(rd());
             std::uniform_int_distribution<> pos_dist(0, result.size() - 4);
             size_t pos = pos_dist(gen);
 
-            // 常见的魔术数字
+            // Common magic numbers
             static const uint32_t magic_numbers[] = {
                 0x00000000, 0xFFFFFFFF, 0x7FFFFFFF, 0x80000000,
                 0x41414141, 0x42424242, 0xDEADBEEF, 0xCAFEBABE
@@ -101,7 +101,7 @@ public:
             std::uniform_int_distribution<> magic_dist(0, 7);
             uint32_t magic = magic_numbers[magic_dist(gen)];
 
-            // 写入魔术数字
+            // Write the magic number
             result[pos] = (magic >> 24) & 0xFF;
             result[pos + 1] = (magic >> 16) & 0xFF;
             result[pos + 2] = (magic >> 8) & 0xFF;
@@ -112,7 +112,7 @@ public:
     }
 };
 
-// 插桩包装器
+// Instrumentation wrapper
 class InstrumentationWrapper : public AlgorithmBase {
 private:
     std::string instrumentation_type_;
@@ -123,7 +123,7 @@ public:
         : instrumentation_type_(type), underlying_mutation_(mutation) {}
 
     std::vector<uint8_t> execute(const std::vector<uint8_t>& input, GlobalContext& context) override {
-        // 插桩只是提供额外信息，实际变异由底层算法执行
+        // Instrumentation only provides extra info; the underlying algorithm performs the mutation.
         return underlying_mutation_->execute(input, context);
     }
 
@@ -144,11 +144,11 @@ public:
     }
 };
 
-// 注册所有缺失的算法
+// Register all missing algorithms
 void registerMissingAlgorithms() {
     auto& registry = AlgorithmRegistry::getInstance();
 
-    // 1. 注册缺失的变异算法
+    // 1. Register missing mutation algorithms
     {
         AlgorithmConfig config;
         config.name = "runtime_dictionary";
@@ -204,7 +204,7 @@ void registerMissingAlgorithms() {
         registry.registerAlgorithm<CmplogMutation>("cmplog", config);
     }
 
-    // 2. 注册调度器（作为特殊的变异算法）
+    // 2. Register schedulers (as special mutation algorithms)
     {
         AlgorithmConfig config;
         config.name = "mopt_scheduler";
@@ -214,7 +214,7 @@ void registerMissingAlgorithms() {
         config.required_info = {InfoType::Coverage};
         config.description = "MOpt scheduler";
 
-        // 使用工厂lambda创建包装器
+        // Use a factory lambda to create the wrapper
         registry.registerAlgorithmFactory("mopt_scheduler",
             []() -> std::shared_ptr<AlgorithmBase> {
                 return std::make_shared<SchedulerAsAlgorithm>("mopt_scheduler",
@@ -222,7 +222,7 @@ void registerMissingAlgorithms() {
             }, config);
     }
 
-    // 已归档（性能慢11-13ms）
+    // Archived (slow: ~11-13ms)
     // {
     //     AlgorithmConfig config;
     //     config.name = "rare_edge_scheduler";
@@ -319,7 +319,7 @@ void registerMissingAlgorithms() {
             }, config);
     }
 
-    // 3. 注册插桩算法
+    // 3. Register instrumentation algorithms
     {
         AlgorithmConfig config;
         config.name = "data_flow_instrumentation";
@@ -352,8 +352,8 @@ void registerMissingAlgorithms() {
             }, config);
     }
 
-    // 4. 添加算法别名支持
-    // registry.addAlias("libfuzzer", "libfuzzer_structured"); // 已归档 - 高开销
+    // 4. Add algorithm alias support
+    // registry.addAlias("libfuzzer", "libfuzzer_structured"); // Archived - high overhead
     registry.addAlias("afl++", "afl_plus_plus");
     registry.addAlias("aflpp", "afl_plus_plus");
 

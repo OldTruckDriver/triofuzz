@@ -6,12 +6,12 @@
 
 namespace triofuzz {
 
-// SeedEnergyOptimizer实现
+// SeedEnergyOptimizer implementation
 std::vector<double> SeedEnergyOptimizer::optimizeEnergy(const std::vector<Seed>& seeds, SharedContext& ctx) {
-    // 定义种子能量优化问题
+    // Define the seed energy optimization problem
     OptimizationProblem<std::vector<double>> problem;
     
-    // 评估函数：基于覆盖率、多样性和历史性能
+    // Evaluation function: based on coverage, diversity, and historical performance
     problem.evaluate = [&seeds](const std::vector<double>& energy_distribution) -> double {
         double score = 0.0;
         
@@ -19,14 +19,14 @@ std::vector<double> SeedEnergyOptimizer::optimizeEnergy(const std::vector<Seed>&
             const auto& seed = seeds[i];
             double energy = energy_distribution[i];
             
-            // 覆盖率权重
+            // Coverage weight
             double coverage_score = seed.coverage.coverage_gain * energy;
             
-            // 多样性权重（与其他种子的差异）
+            // Diversity weight (difference from other seeds)
             double diversity_score = 0.0;
             for (size_t j = 0; j < seeds.size(); ++j) {
                 if (i != j) {
-                    // 简化多样性计算
+                    // Simplified diversity calculation
                     size_t common_edges = 0;
                     for (auto edge : seed.coverage.new_edges) {
                         if (std::find(seeds[j].coverage.new_edges.begin(),
@@ -42,7 +42,7 @@ std::vector<double> SeedEnergyOptimizer::optimizeEnergy(const std::vector<Seed>&
             }
             diversity_score /= std::max(seeds.size() - 1, size_t(1));
             
-            // 历史性能权重
+            // Historical performance weight
             double performance_score = seed.energy * energy;
             
             score += coverage_score * 0.4 + diversity_score * 0.3 + performance_score * 0.3;
@@ -51,24 +51,24 @@ std::vector<double> SeedEnergyOptimizer::optimizeEnergy(const std::vector<Seed>&
         return score;
     };
     
-    // 邻居生成函数
+    // Neighbor generation function
     problem.generate_neighbor = [](const std::vector<double>& current) -> std::vector<double> {
         std::vector<double> neighbor = current;
         std::random_device rd;
         std::mt19937 gen(rd());
         std::normal_distribution<double> noise(0.0, 0.1);
         
-        // 随机扰动一些元素
+        // Randomly perturb some elements
         std::uniform_int_distribution<size_t> idx_dist(0, neighbor.size() - 1);
         size_t num_changes = std::max(size_t(1), neighbor.size() / 10);
         
         for (size_t i = 0; i < num_changes; ++i) {
             size_t idx = idx_dist(gen);
             neighbor[idx] += noise(gen);
-            neighbor[idx] = std::max(0.0, std::min(1.0, neighbor[idx])); // 限制在[0,1]
+            neighbor[idx] = std::max(0.0, std::min(1.0, neighbor[idx])); // Clamp to [0,1]
         }
         
-        // 重新归一化
+        // Renormalize
         double sum = std::accumulate(neighbor.begin(), neighbor.end(), 0.0);
         if (sum > 0) {
             for (auto& val : neighbor) {
@@ -79,27 +79,27 @@ std::vector<double> SeedEnergyOptimizer::optimizeEnergy(const std::vector<Seed>&
         return neighbor;
     };
     
-    // 有效性检查
+    // Validity check
     problem.is_valid = [](const std::vector<double>& solution) -> bool {
-        // 检查是否为有效的概率分布
+        // Check whether this is a valid probability distribution
         double sum = std::accumulate(solution.begin(), solution.end(), 0.0);
         return std::abs(sum - 1.0) < 1e-6 && 
                std::all_of(solution.begin(), solution.end(), [](double x) { return x >= 0.0; });
     };
     
-    // 设置边界
+    // Set bounds
     problem.lower_bound.resize(seeds.size(), 0.0);
     problem.upper_bound.resize(seeds.size(), 1.0);
     
-    // 使用模拟退火求解
+    // Solve using simulated annealing
     auto result = sa_optimizer_->execute(problem, ctx);
     
     return result;
 }
 
-// 模板特化：针对向量类型的具体实现
+// Template specializations: concrete implementations for vector types
 
-// ParticleSwarmOptimization<std::vector<double>>的特化方法
+// Specialization for ParticleSwarmOptimization<std::vector<double>>
 template<>
 void ParticleSwarmOptimization<std::vector<double>>::updateVelocity(
     std::vector<double>& velocity, 
@@ -120,7 +120,7 @@ void ParticleSwarmOptimization<std::vector<double>>::updateVelocity(
     }
 }
 
-// GeneticAlgorithm<std::vector<double>>的特化方法
+// Specialization for GeneticAlgorithm<std::vector<double>>
 template<>
 std::vector<typename GeneticAlgorithm<std::vector<double>>::Individual> 
 GeneticAlgorithm<std::vector<double>>::initializePopulation(
@@ -135,14 +135,14 @@ GeneticAlgorithm<std::vector<double>>::initializePopulation(
         Individual individual;
         individual.solution.resize(problem.lower_bound.size());
         
-        // 随机初始化
+        // Random initialization
         for (size_t j = 0; j < individual.solution.size(); ++j) {
             individual.solution[j] = problem.lower_bound[j] + 
                                    dist(random_gen_) * 
                                    (problem.upper_bound[j] - problem.lower_bound[j]);
         }
         
-        // 如果是概率分布，进行归一化
+        // Normalize if this is a probability distribution
         double sum = std::accumulate(individual.solution.begin(), individual.solution.end(), 0.0);
         if (sum > 0) {
             for (auto& val : individual.solution) {
@@ -167,7 +167,7 @@ GeneticAlgorithm<std::vector<double>>::tournamentSelection(
     Individual best = population[dist(random_gen_)];
     for (size_t i = 1; i < tournament_size_; ++i) {
         Individual candidate = population[dist(random_gen_)];
-        if (candidate.fitness > best.fitness) { // 假设最大化
+        if (candidate.fitness > best.fitness) { // Assuming maximization
             best = candidate;
         }
     }
@@ -180,7 +180,7 @@ typename GeneticAlgorithm<std::vector<double>>::Individual
 GeneticAlgorithm<std::vector<double>>::rouletteWheelSelection(
     const std::vector<Individual>& population) {
     
-    // 计算总适应度
+    // Compute total fitness
     double total_fitness = 0.0;
     double min_fitness = std::numeric_limits<double>::max();
     
@@ -188,12 +188,12 @@ GeneticAlgorithm<std::vector<double>>::rouletteWheelSelection(
         min_fitness = std::min(min_fitness, individual.fitness);
     }
     
-    // 处理负适应度
+    // Handle negative fitness
     for (const auto& individual : population) {
-        total_fitness += individual.fitness - min_fitness + 1.0; // 偏移确保正值
+        total_fitness += individual.fitness - min_fitness + 1.0; // Offset to ensure positive values
     }
     
-    // 轮盘赌选择
+    // Roulette-wheel selection
     std::uniform_real_distribution<double> dist(0.0, total_fitness);
     double selection_point = dist(random_gen_);
     
@@ -205,10 +205,10 @@ GeneticAlgorithm<std::vector<double>>::rouletteWheelSelection(
         }
     }
     
-    return population.back(); // 备用
+    return population.back(); // Fallback
 }
 
-// ParticleSwarmOptimization<std::vector<double>>的特化方法
+// Specialization for ParticleSwarmOptimization<std::vector<double>>
 template<>
 std::vector<typename ParticleSwarmOptimization<std::vector<double>>::Particle> 
 ParticleSwarmOptimization<std::vector<double>>::initializeSwarm(
@@ -226,7 +226,7 @@ ParticleSwarmOptimization<std::vector<double>>::initializeSwarm(
         particle.position.resize(problem.lower_bound.size());
         particle.velocity.resize(problem.lower_bound.size());
         
-        // 初始化位置
+        // Initialize positions
         for (size_t j = 0; j < particle.position.size(); ++j) {
             particle.position[j] = problem.lower_bound[j] + 
                                  pos_dist(random_gen_) * 
@@ -234,7 +234,7 @@ ParticleSwarmOptimization<std::vector<double>>::initializeSwarm(
             particle.velocity[j] = vel_dist(random_gen_);
         }
         
-        // 归一化位置（如果是概率分布）
+        // Normalize positions (if this is a probability distribution)
         double sum = std::accumulate(particle.position.begin(), particle.position.end(), 0.0);
         if (sum > 0) {
             for (auto& val : particle.position) {
@@ -255,11 +255,11 @@ ParticleSwarmOptimization<std::vector<double>>::initializeSwarm(
 template<>
 void ParticleSwarmOptimization<std::vector<double>>::updateParticle(
     typename ParticleSwarmOptimization<std::vector<double>>::Particle& particle, 
-    const std::vector<double>& global_best,
-    const OptimizationProblem<std::vector<double>>& problem) {
-    
-    // 更新速度
-    std::uniform_real_distribution<double> dist(0.0, 1.0);
+	    const std::vector<double>& global_best,
+	    const OptimizationProblem<std::vector<double>>& problem) {
+	    
+	    // Update velocity
+	    std::uniform_real_distribution<double> dist(0.0, 1.0);
     
     for (size_t i = 0; i < particle.velocity.size(); ++i) {
         double r1 = dist(random_gen_);
@@ -268,41 +268,41 @@ void ParticleSwarmOptimization<std::vector<double>>::updateParticle(
         particle.velocity[i] = inertia_weight_ * particle.velocity[i] +
                               cognitive_weight_ * r1 * (particle.personal_best[i] - particle.position[i]) +
                               social_weight_ * r2 * (global_best[i] - particle.position[i]);
-    }
-    
-    // 限制速度
-    for (auto& v : particle.velocity) {
-        v = std::max(-velocity_clamp_, std::min(velocity_clamp_, v));
-    }
-    
-    // 更新位置
-    updatePosition(particle.position, particle.velocity, problem);
-    
-    // 评估新位置
-    particle.fitness = problem.evaluate(particle.position);
-    
-    // 更新个体最佳
-    if (particle.fitness > particle.personal_best_fitness) {
-        particle.personal_best = particle.position;
-        particle.personal_best_fitness = particle.fitness;
-    }
-}
+	    }
+	    
+	    // Clamp velocity
+	    for (auto& v : particle.velocity) {
+	        v = std::max(-velocity_clamp_, std::min(velocity_clamp_, v));
+	    }
+	    
+	    // Update position
+	    updatePosition(particle.position, particle.velocity, problem);
+	    
+	    // Evaluate new position
+	    particle.fitness = problem.evaluate(particle.position);
+	    
+	    // Update personal best
+	    if (particle.fitness > particle.personal_best_fitness) {
+	        particle.personal_best = particle.position;
+	        particle.personal_best_fitness = particle.fitness;
+	    }
+	}
 
-// 实用工具函数
+// Utility functions
 namespace optimization_utils {
 
 std::vector<double> normalizeVector(const std::vector<double>& vec) {
     std::vector<double> normalized = vec;
     double sum = std::accumulate(normalized.begin(), normalized.end(), 0.0);
     
-    if (sum > 0) {
-        for (auto& val : normalized) {
-            val /= sum;
-        }
-    } else {
-        // 如果和为0，设置为均匀分布
-        std::fill(normalized.begin(), normalized.end(), 1.0 / normalized.size());
-    }
+	    if (sum > 0) {
+	        for (auto& val : normalized) {
+	            val /= sum;
+	        }
+	    } else {
+	        // If sum is 0, use a uniform distribution
+	        std::fill(normalized.begin(), normalized.end(), 1.0 / normalized.size());
+	    }
     
     return normalized;
 }

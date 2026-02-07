@@ -3,33 +3,33 @@
 
 namespace triofuzz {
 
-// 创建度量
+// Create metrics
 Metrics PerformanceMonitor::createMetrics(const ExecutionResult& result, 
                                         const CombinationPerformance& perf) const {
     Metrics metrics;
     metrics.timestamp = std::chrono::system_clock::now();
     
-    // 效果指标
+    // Effectiveness metrics
     metrics.coverage_gain_rate = result.coverage.coverage_gain;
     metrics.bug_finding_rate = (result.status == ExecutionResult::Status::Crash) ? 1.0 : 0.0;
     metrics.unique_crash_rate = result.coverage.hasNewCoverage() ? 1.0 : 0.0;
     metrics.path_discovery_rate = static_cast<double>(result.coverage.new_edges.size());
     
-    // 效率指标
+    // Efficiency metrics
     metrics.execution_speed = result.performance.getExecPerSec();
     metrics.memory_efficiency = 1.0 / (1.0 + static_cast<double>(result.performance.memory_usage_bytes) / 1024.0);
-    metrics.cpu_utilization = result.performance.execution_time_ms / 1000.0; // 简化计算
+    metrics.cpu_utilization = result.performance.execution_time_ms / 1000.0; // Simplified calculation
     metrics.throughput = metrics.execution_speed;
     
-    // 组合指标
+    // Combination metrics
     metrics.combination_effectiveness = calculateEffectiveness(result, perf);
-    metrics.algorithm_diversity = 0.5; // 占位符
+    metrics.algorithm_diversity = 0.5; // Placeholder
     metrics.synergy_score = metrics.combination_effectiveness * metrics.algorithm_diversity;
     
     return metrics;
 }
 
-// 聚合度量
+// Aggregate metrics
 void PerformanceMonitor::aggregateMetrics(Metrics& aggregated, const Metrics& metric) const {
     aggregated.coverage_gain_rate += metric.coverage_gain_rate;
     aggregated.bug_finding_rate += metric.bug_finding_rate;
@@ -44,7 +44,7 @@ void PerformanceMonitor::aggregateMetrics(Metrics& aggregated, const Metrics& me
     aggregated.synergy_score += metric.synergy_score;
 }
 
-// 标准化度量
+// Normalize metrics
 void PerformanceMonitor::normalizeMetrics(Metrics& metrics, size_t count) const {
     if (count == 0) return;
     
@@ -62,11 +62,11 @@ void PerformanceMonitor::normalizeMetrics(Metrics& metrics, size_t count) const 
     metrics.synergy_score *= factor;
 }
 
-// 更新统计信息
+// Update statistics
 void PerformanceMonitor::updateStatistics(CombinationPerformance& perf) const {
     if (perf.metrics_history.empty()) return;
     
-    // 计算覆盖率增益的均值和标准差
+    // Compute mean and standard deviation of coverage gain
     double sum = 0.0, sum_sq = 0.0;
     for (const auto& metric : perf.metrics_history) {
         sum += metric.coverage_gain_rate;
@@ -77,7 +77,7 @@ void PerformanceMonitor::updateStatistics(CombinationPerformance& perf) const {
     perf.stats.mean_coverage_gain = sum / n;
     perf.stats.std_coverage_gain = std::sqrt((sum_sq / n) - (perf.stats.mean_coverage_gain * perf.stats.mean_coverage_gain));
     
-    // 计算执行时间统计
+    // Compute execution time statistics
     sum = sum_sq = 0.0;
     for (const auto& metric : perf.metrics_history) {
         double exec_time = (metric.execution_speed > 0) ? (1.0 / metric.execution_speed * 1000.0) : 0.0;
@@ -88,25 +88,25 @@ void PerformanceMonitor::updateStatistics(CombinationPerformance& perf) const {
     perf.stats.mean_execution_time = sum / n;
     perf.stats.std_execution_time = std::sqrt((sum_sq / n) - (perf.stats.mean_execution_time * perf.stats.mean_execution_time));
     
-    // 计算成功率
+    // Compute success rate
     perf.stats.success_rate = static_cast<double>(perf.success_count.load()) / static_cast<double>(perf.execution_count.load());
 }
 
-// 计算组合得分
+// Compute combination score
 double PerformanceMonitor::calculateCombinationScore(const CombinationPerformance& perf) const {
     if (perf.metrics_history.empty()) return 0.0;
     
-    // 基于最近的度量计算得分
+    // Compute score based on the latest metrics
     const auto& latest = perf.metrics_history.back();
     
-    // 综合得分 = 效果 * 效率
+    // Overall score = effectiveness * efficiency
     double effectiveness = (latest.coverage_gain_rate + latest.bug_finding_rate + latest.path_discovery_rate) / 3.0;
     double efficiency = (latest.execution_speed + latest.memory_efficiency + latest.throughput) / 3.0;
     
     return effectiveness * efficiency * latest.synergy_score;
 }
 
-// 计算有效性
+// Compute effectiveness
 double PerformanceMonitor::calculateEffectiveness(const ExecutionResult& result,
                                                  const CombinationPerformance& perf) const {
     double coverage_score = result.coverage.getCoveragePercentage() / 100.0;
@@ -116,9 +116,9 @@ double PerformanceMonitor::calculateEffectiveness(const ExecutionResult& result,
     return (coverage_score + crash_score + new_coverage_score) / 3.0;
 }
 
-// 计算偏差
+// Compute deviation
 double PerformanceMonitor::calculateDeviation(const Metrics& current, const Metrics& baseline) const {
-    // 计算各个指标的标准化偏差
+    // Compute normalized deviation for each metric
     std::vector<double> deviations;
     
     if (baseline.coverage_gain_rate > 0) {
@@ -133,11 +133,11 @@ double PerformanceMonitor::calculateDeviation(const Metrics& current, const Metr
     
     if (deviations.empty()) return 0.0;
     
-    // 返回平均偏差
+    // Return average deviation
     return std::accumulate(deviations.begin(), deviations.end(), 0.0) / deviations.size();
 }
 
-// 计算线性趋势
+// Compute linear trend
 double PerformanceMonitor::calculateLinearTrend(const std::vector<std::pair<double, double>>& points) const {
     if (points.size() < 2) return 0.0;
     
@@ -157,7 +157,7 @@ double PerformanceMonitor::calculateLinearTrend(const std::vector<std::pair<doub
     return (n * sum_xy - sum_x * sum_y) / denominator;
 }
 
-// 更新全局指标
+// Update global metrics
 void PerformanceMonitor::updateGlobalMetrics() {
     std::shared_lock<std::shared_mutex> lock(performance_mutex_);
     
@@ -176,18 +176,18 @@ void PerformanceMonitor::updateGlobalMetrics() {
     }
 }
 
-// 执行异常检测
+// Run anomaly detection
 void PerformanceMonitor::performAnomalyDetection() {
     std::shared_lock<std::shared_mutex> lock(performance_mutex_);
     
     for (const auto& [combo_name, perf] : combination_performance_) {
-        if (perf.metrics_history.size() < 10) continue; // 需要足够的历史数据
+        if (perf.metrics_history.size() < 10) continue; // Need sufficient history
         
         const auto& current = perf.metrics_history.back();
         auto baseline = calculateBaseline(perf.metrics_history);
         
         if (detectAnomaly(current, baseline)) {
-            // 通知异常回调
+            // Notify anomaly callbacks
             for (const auto& callback : anomaly_callbacks_) {
                 callback(current, baseline);
             }
@@ -195,12 +195,12 @@ void PerformanceMonitor::performAnomalyDetection() {
     }
 }
 
-// 计算基线
+// Compute baseline
 Metrics PerformanceMonitor::calculateBaseline(const std::deque<Metrics>& history) const {
     if (history.empty()) return Metrics{};
     
     Metrics baseline{};
-    size_t count = std::min<size_t>(history.size(), 20); // 使用最近20个样本
+    size_t count = std::min<size_t>(history.size(), 20); // Use the most recent 20 samples
     
     for (size_t i = history.size() - count; i < history.size(); ++i) {
         aggregateMetrics(baseline, history[i]);
@@ -210,13 +210,13 @@ Metrics PerformanceMonitor::calculateBaseline(const std::deque<Metrics>& history
     return baseline;
 }
 
-// 检测异常
+// Detect anomaly
 bool PerformanceMonitor::detectAnomaly(const Metrics& current, const Metrics& baseline) const {
     double deviation = calculateDeviation(current, baseline);
     return deviation > config_.anomaly_threshold;
 }
 
-// 获取顶级组合
+// Get top combinations
 std::vector<std::pair<AlgorithmCombination, double>> PerformanceMonitor::getTopCombinations(
     size_t limit) const {
     
@@ -229,7 +229,7 @@ std::vector<std::pair<AlgorithmCombination, double>> PerformanceMonitor::getTopC
         result.emplace_back(perf.combination, score);
     }
     
-    // 按得分排序
+    // Sort by score
     std::sort(result.begin(), result.end(), 
               [](const auto& a, const auto& b) { return a.second > b.second; });
     
@@ -240,7 +240,7 @@ std::vector<std::pair<AlgorithmCombination, double>> PerformanceMonitor::getTopC
     return result;
 }
 
-// 分析趋势 (修正方法签名以匹配头文件)
+// Analyze trend (signature matches header)
 PerformanceMonitor::PerformanceTrend PerformanceMonitor::analyzeTrend(
     const std::string& combo_name, std::chrono::hours period) const {
     
@@ -256,11 +256,11 @@ PerformanceMonitor::PerformanceTrend PerformanceMonitor::analyzeTrend(
     
     const auto& perf = it->second;
     
-    // 创建时间窗口
+    // Create time window
     auto now = std::chrono::system_clock::now();
     auto start_time = now - period;
     
-    // 构建时间序列数据
+    // Build time-series data
     std::vector<std::pair<double, double>> coverage_points;
     std::vector<std::pair<double, double>> crash_points;
     std::vector<std::pair<double, double>> execution_points;
@@ -274,12 +274,12 @@ PerformanceMonitor::PerformanceTrend PerformanceMonitor::analyzeTrend(
         }
     }
     
-    // 计算趋势
+    // Compute trend
     trend.coverage_trend = calculateLinearTrend(coverage_points);
     trend.crash_trend = calculateLinearTrend(crash_points);
     trend.execution_trend = calculateLinearTrend(execution_points);
     
-    // 确定总体趋势
+    // Determine overall trend
     double overall = (trend.coverage_trend + trend.crash_trend + trend.execution_trend) / 3.0;
     if (overall > 0.1) {
         trend.overall_trend = "improving";
@@ -292,7 +292,7 @@ PerformanceMonitor::PerformanceTrend PerformanceMonitor::analyzeTrend(
     return trend;
 }
 
-// 生成报告
+// Generate report
 PerformanceMonitor::PerformanceReport PerformanceMonitor::generateReport() const {
     std::shared_lock<std::shared_mutex> lock(performance_mutex_);
     
@@ -302,7 +302,7 @@ PerformanceMonitor::PerformanceReport PerformanceMonitor::generateReport() const
     report.total_crashes = total_crashes_.load();
     report.coverage_percentage = total_coverage_.load();
     
-    // 收集组合摘要
+    // Collect combination summaries
     std::vector<std::pair<std::string, double>> combination_scores;
     
     for (const auto& [combo_name, perf] : combination_performance_) {
@@ -325,7 +325,7 @@ PerformanceMonitor::PerformanceReport PerformanceMonitor::generateReport() const
         }
     }
     
-    // 最差组合
+    // Worst combinations
     std::sort(combination_scores.begin(), combination_scores.end(),
               [](const auto& a, const auto& b) { return a.second < b.second; });
     
@@ -345,12 +345,12 @@ PerformanceMonitor::PerformanceReport PerformanceMonitor::generateReport() const
     return report;
 }
 
-// 更新配置
+// Update config
 void PerformanceMonitor::updateConfig(const Config& config) {
     config_ = config;
 }
 
-// 注册异常回调
+// Register anomaly callback
 void PerformanceMonitor::registerAnomalyCallback(
     std::function<void(const Metrics&, const Metrics&)> callback) {
     anomaly_callbacks_.push_back(callback);

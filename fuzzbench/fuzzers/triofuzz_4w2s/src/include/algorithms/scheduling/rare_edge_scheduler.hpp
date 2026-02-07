@@ -10,48 +10,48 @@
 
 namespace triofuzz {
 
-// 稀有边优先调度器
+// Rare-edge-prioritizing scheduler
 class RareEdgeScheduler : public SchedulingAlgorithm {
 private:
-    // 边/分支频率统计（统一用于edge和branch）
+    // Edge/branch frequency stats (shared for edges and branches).
     struct EdgeStats {
         uint64_t edge_id;
         size_t hit_count = 0;
         double hit_frequency = 0.0;
-        double rarity_score = 0.0;  // 稀有度分数（从FairFuzz迁移）
-        bool is_rare = false;        // 是否为稀有边
-        std::set<size_t> triggering_seeds; // 触发此边的种子
+        double rarity_score = 0.0;  // Rarity score (migrated from FairFuzz)
+        bool is_rare = false;        // Is rare edge?
+        std::set<size_t> triggering_seeds; // Seeds that trigger this edge
         std::chrono::system_clock::time_point first_hit;
         std::chrono::system_clock::time_point last_hit;
     };
 
-    // 全局边统计
+    // Global edge stats
     std::unordered_map<uint64_t, EdgeStats> global_edge_stats_;
 
-    // 分支频率统计（从FairFuzzMutation迁移）
+    // Branch frequency stats (migrated from FairFuzzMutation)
     std::unordered_map<uint64_t, EdgeStats> branch_frequencies_;
 
-    // 稀有分支集合（从FairFuzzMutation迁移）
+    // Set of rare branches (migrated from FairFuzzMutation)
     std::set<uint64_t> rare_branches_;
 
-    // 种子到稀有分支的映射（从FairFuzzMutation迁移）
+    // Mapping from seed to rare branches (migrated from FairFuzzMutation)
     std::unordered_map<size_t, std::set<uint64_t>> seed_rare_branches_;
     
-    // 稀有边阈值参数
+    // Rare-edge threshold parameters
     struct RareEdgeParams {
-        double rare_threshold = 0.01;        // 稀有边阈值（1%以下）
-        double ultra_rare_threshold = 0.001; // 极稀有边阈值（0.1%以下）
-        size_t min_executions = 1000;        // 开始统计的最小执行次数
-        double rare_edge_bonus = 10.0;       // 稀有边奖励系数
-        double ultra_rare_bonus = 50.0;      // 极稀有边奖励系数
-        double fresh_rare_bonus = 20.0;      // 新发现稀有边奖励
+        double rare_threshold = 0.01;        // Rare-edge threshold (<1%)
+        double ultra_rare_threshold = 0.001; // Ultra-rare threshold (<0.1%)
+        size_t min_executions = 1000;        // Minimum executions before collecting stats
+        double rare_edge_bonus = 10.0;       // Rare-edge bonus factor
+        double ultra_rare_bonus = 50.0;      // Ultra-rare bonus factor
+        double fresh_rare_bonus = 20.0;      // Bonus for newly discovered rare edges
     } params_;
     
-    // 种子评分缓存
+    // Seed score cache
     mutable std::unordered_map<size_t, double> seed_score_cache_;
     mutable size_t cache_generation_ = 0;
     
-    // 执行统计
+    // Execution stats
     size_t total_executions_ = 0;
     std::chrono::system_clock::time_point stats_start_time_;
     
@@ -73,64 +73,64 @@ public:
     void saveState(StateWriter& writer) const override;
     void loadState(StateReader& reader) override;
     
-    // 边统计管理
+    // Edge stats management
     void updateEdgeStats(const CoverageInfo& coverage, size_t seed_idx);
     void updateGlobalStats(const std::vector<Seed>& seeds);
     
-    // 稀有边分析
+    // Rare-edge analysis
     std::vector<uint64_t> identifyRareEdges() const;
     std::vector<uint64_t> identifyUltraRareEdges() const;
     std::set<size_t> getSeedsWithRareEdges(const std::vector<Seed>& seeds) const;
     
-    // 种子评分
+    // Seed scoring
     double calculateRareEdgeScore(const Seed& seed) const;
     double calculateEdgeRarityBonus(uint64_t edge_id) const;
     double calculateFreshnessBonus(const Seed& seed) const;
     
-    // 调度策略
+    // Scheduling strategy
     size_t selectBestRareEdgeSeed(const std::vector<Seed>& seeds) const;
     size_t selectByRareEdgeProbability(const std::vector<Seed>& seeds);
     
-    // 统计信息
+    // Statistics
     size_t getRareEdgeCount() const;
     size_t getUltraRareEdgeCount() const;
     double getAverageEdgeFrequency() const;
 
-    // 从FairFuzzMutation迁移的方法
+    // Methods migrated from FairFuzzMutation
     void updateBranchFrequency(uint64_t branch_id, bool hit);
     void markSeedRareBranches(size_t seed_hash, const std::set<uint64_t>& rare_branches);
     const std::set<uint64_t>& getRareBranches() const { return rare_branches_; }
     double calculateFairnessScore(const Seed& seed) const;
     
 private:
-    // 缓存管理
+    // Cache management
     void invalidateCache() const;
     bool isCacheValid() const;
     
-    // 概率计算
+    // Probability calculation
     std::vector<double> calculateRareEdgeProbabilities(const std::vector<Seed>& seeds) const;
     
-    // 边频率更新
+    // Edge frequency update
     void updateEdgeFrequencies();
     bool isRareEdge(uint64_t edge_id) const;
     bool isUltraRareEdge(uint64_t edge_id) const;
     
-    // 种子过滤
+    // Seed filtering
     std::vector<size_t> filterSeedsByRareEdges(const std::vector<Seed>& seeds) const;
 };
 
-// 稀有边发现策略
+// Rare-edge discovery strategy
 class RareEdgeDiscoveryStrategy {
 public:
     enum class DiscoveryMode {
-        CONSERVATIVE,  // 保守模式：只关注已知稀有边
-        AGGRESSIVE,    // 激进模式：积极探索新稀有边
-        BALANCED      // 平衡模式：兼顾已知和探索
+        CONSERVATIVE,  // Conservative: focus on known rare edges
+        AGGRESSIVE,    // Aggressive: explore new rare edges
+        BALANCED      // Balanced: combine known and exploration
     };
     
 private:
     DiscoveryMode mode_ = DiscoveryMode::BALANCED;
-    double exploration_ratio_ = 0.3; // 探索vs利用比例
+    double exploration_ratio_ = 0.3; // Exploration vs exploitation ratio
     
 public:
     DiscoveryMode getMode() const { return mode_; }
@@ -139,13 +139,13 @@ public:
     double getExplorationRatio() const { return exploration_ratio_; }
     void setExplorationRatio(double ratio) { exploration_ratio_ = ratio; }
     
-    // 根据策略调整种子选择
+    // Select seed based on strategy
     size_t selectSeed(const std::vector<Seed>& seeds, 
                      const std::set<size_t>& rare_edge_seeds,
                      const RareEdgeScheduler& scheduler) const;
 };
 
-// 边覆盖率跟踪器
+// Edge coverage tracker
 class EdgeCoverageTracker {
 private:
     std::unordered_map<uint64_t, size_t> edge_hit_counts_;

@@ -21,37 +21,37 @@ namespace triofuzz {
 namespace AlgorithmConfig {
 
 // ============================================================================
-// 启用的算法列表 - 这是唯一需要修改的地方！
+// Enabled algorithm lists - this is the only place you need to edit!
 // ============================================================================
 
 /**
- * @brief 启用的变异算法 - 对标 AFL++ 配置空间
+ * @brief Enabled mutation algorithms - aligned with the AFL++ configuration space
  *
- * 外层学习（Thompson Sampling）选择的是"配置"（power schedule ×
- * {havoc,mopt} × splice），因此需要同时具备：
- * 1) AFL++ TS Parallel 的 37 个独立 mut_* 算子（用于 havoc stacking，支持 splice on/off）
- * 2) AFL++ MOpt 的 19 个 mopt_* stage（用于 mopt 选算子，支持 splice on/off）
+ * The outer learner (Thompson Sampling) selects a "configuration"
+ * (power schedule × {havoc,mopt} × splice), so we need both:
+ * 1) The 37 independent AFL++ TS Parallel mut_* operators (for havoc stacking, splice on/off)
+ * 2) The 19 AFL++ MOpt mopt_* stages (for MOpt operator selection, splice on/off)
  *
- * 0..18 对应关系：
- * 00. mopt_flip1           - 翻转 1 bit
- * 01. mopt_flip2           - 翻转相邻 2 bit
- * 02. mopt_flip4           - 翻转相邻 4 bit
- * 03. mopt_flip8           - 翻转 1 byte (XOR 0xFF)
- * 04. mopt_flip16          - 翻转 2 bytes (XOR 0xFFFF)
- * 05. mopt_flip32          - 翻转 4 bytes (XOR 0xFFFFFFFF)
- * 06. mopt_arith8          - 8-bit add/sub (一次包含减+加)
- * 07. mopt_arith16         - 16-bit add/sub (随机端序，包含减+加)
- * 08. mopt_arith32         - 32-bit add/sub (随机端序，包含减+加)
+ * Mapping 0..18:
+ * 00. mopt_flip1           - Flip 1 bit
+ * 01. mopt_flip2           - Flip 2 adjacent bits
+ * 02. mopt_flip4           - Flip 4 adjacent bits
+ * 03. mopt_flip8           - Flip 1 byte (XOR 0xFF)
+ * 04. mopt_flip16          - Flip 2 bytes (XOR 0xFFFF)
+ * 05. mopt_flip32          - Flip 4 bytes (XOR 0xFFFFFFFF)
+ * 06. mopt_arith8          - 8-bit add/sub (includes both subtract and add)
+ * 07. mopt_arith16         - 16-bit add/sub (random endianness; includes subtract and add)
+ * 08. mopt_arith32         - 32-bit add/sub (random endianness; includes subtract and add)
  * 09. mopt_interest8       - 8-bit interesting value
- * 10. mopt_interest16      - 16-bit interesting value (随机端序)
- * 11. mopt_interest32      - 32-bit interesting value (随机端序)
- * 12. mopt_rand8           - 随机字节 XOR (1..255)
- * 13. mopt_deletebyte      - 删除随机块
+ * 10. mopt_interest16      - 16-bit interesting value (random endianness)
+ * 11. mopt_interest32      - 32-bit interesting value (random endianness)
+ * 12. mopt_rand8           - Random byte XOR (1..255)
+ * 13. mopt_deletebyte      - Delete random block
  * 14. mopt_clone75         - clone(75%) / const insert(25%)
  * 15. mopt_overwrite75     - copy overwrite(75%) / fixed overwrite(25%)
- * 16. mopt_overwrite_extra - 字典覆写
- * 17. mopt_insert_extra    - 字典插入
- * 18. mopt_splice          - splice（overwrite / insert）
+ * 16. mopt_overwrite_extra - Dictionary overwrite
+ * 17. mopt_insert_extra    - Dictionary insert
+ * 18. mopt_splice          - splice (overwrite / insert)
  */
 inline const std::vector<std::string> ENABLED_MUTATIONS = {
     // AFL++ individual mutations (TS Parallel operator set, 37 ops)
@@ -104,14 +104,14 @@ inline const std::vector<std::string> ENABLED_MUTATIONS = {
     "endianness_swap",
     "trim",
 
-    // 高级分析引导变异算法 (5 ops) - 从 triofuzz 整合
-    // 这些算法执行时间较长 (1-50ms)，但能发现复杂约束和魔法字节
-    // 通过 TS 的 "explore_analysis" arm 选择使用
-    "cmplog",                // 比较指令日志 - 利用 trace-cmp 发现魔法字节 (~1-5ms)
-    "redqueen",              // 输入-状态映射 - 非侵入式约束求解 (~15-50ms)
-    "smart_dictionary",      // 智能字典 - 从输入中提取 token (~0.5-2ms)
-    "runtime_dictionary",    // 运行时字典 - 动态收集字典 (~0.5-2ms)
-    "format_overflow",       // 格式感知整数溢出 - PNG001/004/005/006/007 精确触发 (~0.1-1ms)
+    // Advanced analysis-guided mutation algorithms (5 ops) - integrated from triofuzz
+    // These algorithms take longer (1-50ms), but can find complex constraints and magic bytes.
+    // Selected via the TS "explore_analysis" arm.
+    "cmplog",                // Comparison instruction logging - uses trace-cmp to discover magic bytes (~1-5ms)
+    "redqueen",              // Input-to-state mapping - non-intrusive constraint solving (~15-50ms)
+    "smart_dictionary",      // Smart dictionary - extract tokens from input (~0.5-2ms)
+    "runtime_dictionary",    // Runtime dictionary - dynamically collect entries (~0.5-2ms)
+    "format_overflow",       // Format-aware integer overflow - precisely targets PNG001/004/005/006/007 (~0.1-1ms)
 
     // AFL++ MOpt stage set (operator_num=19)
     "mopt_flip1",            // 00
@@ -136,98 +136,98 @@ inline const std::vector<std::string> ENABLED_MUTATIONS = {
 };
 
 /**
- * @brief 启用的反馈分析器
+ * @brief Enabled feedback analyzers
  *
- * 当前全部归档，不使用任何feedback analyzer以优化性能
+ * Currently all archived; no feedback analyzers are enabled to optimize performance.
  */
 inline const std::vector<std::string> ENABLED_FEEDBACKS = {
-    // 全部归档
+    // All archived
     // "lightweight_coverage_analyzer",
     // "coverage_analyzer",
     // "enhanced_coverage_analyzer",
 };
 
 /**
- * @brief 启用的调度器
+ * @brief Enabled schedulers
  *
- * 当前全部归档，使用默认的CorpusManager调度
+ * Currently all archived; use the default CorpusManager scheduling.
  */
 inline const std::vector<std::string> ENABLED_SCHEDULERS = {
-    // 全部归档
+    // All archived
     // "fast_scheduler",
     // "energy_scheduler",
 };
 
 // ============================================================================
-// 已归档的算法 - 用于检查和警告
+// Archived algorithms - used for checks and warnings
 // ============================================================================
 
 /**
- * @brief 已归档的算法集合
+ * @brief Archived algorithm set
  *
- * Batch 1-5 归档的所有算法列表，用于：
- * 1. 运行时警告用户使用了已归档算法
- * 2. 防止意外重新启用
- * 3. 文档记录
+ * List of all algorithms archived in Batch 1-5, used to:
+ * 1. Warn users at runtime when an archived algorithm is used
+ * 2. Prevent accidental re-enablement
+ * 3. Provide documentation/reference
  */
 inline const std::set<std::string> ARCHIVED_ALGORITHMS = {
-    // Batch 1: 慢速instrumentation算法
-    // "redqueen",           // 极慢 (15-50ms/exec) — 已启用以参与主流程
-    // "cmplog",             // 已启用
-    "taint_guided",       // 慢速 (3-8ms)
-    "rare_branch",        // 中慢速
-    // "arithmetic",       // 已启用
+    // Batch 1: slow instrumentation algorithms
+    // "redqueen",           // Extremely slow (15-50ms/exec) — enabled to participate in the main pipeline
+    // "cmplog",             // Enabled
+    "taint_guided",       // Slow (3-8ms)
+    "rare_branch",        // Moderately slow
+    // "arithmetic",       // Enabled
 
-    // Batch 2: 中等开销算法
-    "classic_libfuzzer",  // 中等开销
-    // "icc_profile",        // 特定格式，中等开销
-    "jpeg_mutation",      // 特定格式，中等开销
-    "entropy_guided",     // 功能被byte_weighted_havoc(0.35ms)和token(0.25ms)完全覆盖，计算开销过高（熵分布计算>1ms）
-    "performance_analyzer", // 性能分析开销
-    "smart_format",       // 性能慢 (13ms)
-    "fast_scheduler",     // 调度器开销
+    // Batch 2: medium-overhead algorithms
+    "classic_libfuzzer",  // Medium overhead
+    // "icc_profile",        // Format-specific, medium overhead
+    "jpeg_mutation",      // Format-specific, medium overhead
+    "entropy_guided",     // Fully covered by byte_weighted_havoc (0.35ms) and token (0.25ms); too expensive (entropy distribution computation >1ms)
+    "performance_analyzer", // Performance analysis overhead
+    "smart_format",       // Slow (13ms)
+    "fast_scheduler",     // Scheduler overhead
 
-    // Batch 3: 调度器和字典算法
+    // Batch 3: schedulers and dictionary algorithms
     "lightweight_coverage_analyzer",
     "coverage_analyzer",
-    "mopt_scheduler",     // 性能慢 (11-13ms)
+    "mopt_scheduler",     // Slow (11-13ms)
     "energy_scheduler",
     "enhanced_coverage_analyzer",
-    // "format_aware",       // 格式感知开销大 — 已启用以参与主流程
-    // "smart_dictionary", // 已启用
+    // "format_aware",       // High overhead for format awareness — enabled to participate in the main pipeline
+    // "smart_dictionary", // Enabled
     "runtime_dictionary",
 
-    // Batch 4: AFL++和Honggfuzz
-    "afl_plus_plus",      // 中等开销 (0.5-2ms/exec)
-    "honggfuzz",          // 功能重复70%，核心优势（硬件反馈）未实现，已拆分为trim和block
+    // Batch 4: AFL++ and Honggfuzz
+    "afl_plus_plus",      // Medium overhead (0.5-2ms/exec)
+    "honggfuzz",          // ~70% functionality overlap; core advantage (hardware feedback) not implemented; split into trim and block
 
     // Batch 5: Deterministic
-    "deterministic",      // 系统性变异，低开销但重复性高
+    "deterministic",      // Systematic mutations; low overhead but high redundancy
 
-    // 其他已归档的高开销算法
-    "neuzz",              // AI算法，极高开销
-    "gradient_descent",   // 梯度下降，高开销
-    "symbolic_execution", // 符号执行，极高开销
-    "zest",               // 结构化fuzzing，高开销
-    "libfuzzer_structured", // 结构化fuzzing，高开销
-    "rare_edge_scheduler", // 调度器，性能慢 (11-13ms)
-    "aflgo",              // 定向fuzzing，性能慢 (14ms)
-    "crash_analyzer",     // 崩溃分析，性能慢 (11-12ms)
-    "angora_gradient_descent", // 梯度下降，高开销
-    "adaptive_mutation_orchestrator", // 编排器开销大
-    "icc_aggressive",     // ICC特定，中等开销
-    "fairfuzz",           // 公平性算法，中等开销
+    // Other archived high-overhead algorithms
+    "neuzz",              // AI algorithm, very high overhead
+    "gradient_descent",   // Gradient descent, high overhead
+    "symbolic_execution", // Symbolic execution, very high overhead
+    "zest",               // Structured fuzzing, high overhead
+    "libfuzzer_structured", // Structured fuzzing, high overhead
+    "rare_edge_scheduler", // Scheduler, slow (11-13ms)
+    "aflgo",              // Targeted fuzzing, slow (14ms)
+    "crash_analyzer",     // Crash analysis, slow (11-12ms)
+    "angora_gradient_descent", // Gradient descent, high overhead
+    "adaptive_mutation_orchestrator", // Orchestrator has high overhead
+    "icc_aggressive",     // ICC-specific, medium overhead
+    "fairfuzz",           // Fairness-based algorithm, medium overhead
 };
 
 // ============================================================================
-// 辅助函数 - 提供统一的查询接口
+// Helper functions - provide a unified query interface
 // ============================================================================
 
 /**
- * @brief 检查算法是否已启用
+ * @brief Check whether an algorithm is enabled
  */
 inline bool isEnabled(const std::string& algo_name) {
-    // 检查是否在启用列表中
+    // Check whether it is in any enabled list
     if (std::find(ENABLED_MUTATIONS.begin(), ENABLED_MUTATIONS.end(), algo_name) != ENABLED_MUTATIONS.end()) {
         return true;
     }
@@ -241,14 +241,14 @@ inline bool isEnabled(const std::string& algo_name) {
 }
 
 /**
- * @brief 检查算法是否已归档
+ * @brief Check whether an algorithm is archived
  */
 inline bool isArchived(const std::string& algo_name) {
     return ARCHIVED_ALGORITHMS.find(algo_name) != ARCHIVED_ALGORITHMS.end();
 }
 
 /**
- * @brief 获取所有启用的算法（mutation + feedback + scheduler）
+ * @brief Get all enabled algorithms (mutation + feedback + scheduler)
  */
 inline std::vector<std::string> getAllEnabled() {
     std::vector<std::string> all;
@@ -259,9 +259,9 @@ inline std::vector<std::string> getAllEnabled() {
 }
 
 /**
- * @brief 过滤掉已归档的算法
- * @param algorithms 待过滤的算法列表
- * @return 过滤后只包含启用算法的列表
+ * @brief Filter out archived algorithms
+ * @param algorithms Algorithms to filter
+ * @return Filtered list containing only enabled algorithms
  */
 inline std::vector<std::string> filterEnabled(const std::vector<std::string>& algorithms) {
     std::vector<std::string> filtered;
@@ -274,28 +274,28 @@ inline std::vector<std::string> filterEnabled(const std::vector<std::string>& al
 }
 
 /**
- * @brief 组合模式配置
+ * @brief Combination mode configuration
  *
- * 为了优化性能，只使用sequential模式
- * parallel模式有线程同步开销，性能较差
+ * To optimize performance, only sequential mode is enabled.
+ * Parallel mode has thread synchronization overhead and performs worse.
  */
 inline const std::vector<std::string> ENABLED_COMBINATION_MODES = {
     "sequential"
-    // "parallel" - 已禁用，有同步开销
-    // "adaptive" - 较少使用
+    // "parallel" - disabled due to synchronization overhead
+    // "adaptive" - rarely used
 };
 
 /**
- * @brief 性能配置
+ * @brief Performance configuration
  */
 struct PerformanceConfig {
-    // Havoc变异次数限制
+    // Havoc mutation count limits
     static constexpr size_t HAVOC_MIN_MUTATIONS = 1;
-    static constexpr size_t HAVOC_MAX_MUTATIONS = 8;      // 从16降到8
-    static constexpr size_t HAVOC_MAX_RARE_EDGE = 16;     // 从32降到16
-    static constexpr size_t HAVOC_MAX_LARGE_INPUT = 4;    // 从8降到4
+    static constexpr size_t HAVOC_MAX_MUTATIONS = 8;      // Reduced from 16 to 8
+    static constexpr size_t HAVOC_MAX_RARE_EDGE = 16;     // Reduced from 32 to 16
+    static constexpr size_t HAVOC_MAX_LARGE_INPUT = 4;    // Reduced from 8 to 4
 
-    // 组合中算法数量限制
+    // Algorithm count limits per combination
     static constexpr size_t MAX_ALGORITHMS_PER_COMBO = 3;
     static constexpr size_t PREFERRED_ALGORITHMS_PER_COMBO = 2;
 };

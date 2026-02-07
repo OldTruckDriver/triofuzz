@@ -10,11 +10,11 @@
 
 namespace triofuzz {
 
-// 反馈算法输入输出类型
+// Feedback algorithm input/output types
 using FeedbackInput = ExecutionResult;
 using FeedbackOutput = std::map<std::string, std::any>;
 
-// 反馈处理算法基类
+// Base class for feedback processing algorithms
 class FeedbackAlgorithm : public Algorithm<FeedbackInput, FeedbackOutput, SharedContext> {
 public:
     AlgorithmInfo getInfo() const override {
@@ -25,18 +25,18 @@ public:
     }
     
     void saveState(StateWriter& writer) const override {
-        // 反馈算法通常保存统计信息
+        // Feedback algorithms typically persist statistics.
     }
     
     void loadState(StateReader& reader) override {
-        // 反馈算法通常加载统计信息
+        // Feedback algorithms typically restore statistics.
     }
 };
 
-// 覆盖率分析算法
+// Coverage analysis algorithm
 class CoverageAnalyzer : public FeedbackAlgorithm {
 private:
-    // 覆盖率统计
+    // Coverage stats
     struct CoverageStats {
         std::bitset<65536> global_bitmap;
         std::unordered_map<uint64_t, size_t> edge_hit_count;
@@ -46,7 +46,7 @@ private:
     };
     
     CoverageStats stats_;
-    double rare_edge_threshold_ = 0.01; // 1%以下为稀有边
+    double rare_edge_threshold_ = 0.01; // Edges below 1% frequency are considered rare
     
 public:
     CoverageAnalyzer() = default;
@@ -62,19 +62,19 @@ public:
         return measureExecution([&]() {
             FeedbackOutput output;
             
-            // 更新全局覆盖率
+            // Update global coverage.
             CoverageInfo updated_coverage = updateGlobalCoverage(result.coverage);
             
-            // 分析覆盖率特征
+            // Analyze coverage patterns.
             analyzeCoveragePatterns(updated_coverage);
             
-            // 计算覆盖率指标
+            // Compute coverage metrics.
             output["coverage_percentage"] = calculateCoveragePercentage();
             output["new_edges_count"] = updated_coverage.new_edges.size();
             output["rare_edges_count"] = updated_coverage.rare_edges.size();
             output["coverage_gain"] = updated_coverage.coverage_gain;
             
-            // 更新上下文
+            // Update context.
             ctx.setCoverageInfo(updated_coverage);
             
             return output;
@@ -94,10 +94,10 @@ private:
     double calculateCoveragePercentage();
 };
 
-// 崩溃分析算法
+// Crash analysis algorithm
 class CrashAnalyzer : public FeedbackAlgorithm {
 public:
-    // 崩溃签名
+    // Crash signature
     struct CrashSignature {
         std::string stack_trace_hash;
         std::string fault_address;
@@ -110,7 +110,7 @@ public:
     };
 
 private:
-    // 崩溃统计
+    // Crash stats
     std::unordered_map<std::string, std::vector<std::vector<uint8_t>>> unique_crashes_;
     std::unordered_map<std::string, size_t> crash_counts_;
     std::unordered_map<std::string, CrashSignature> crash_signatures_;
@@ -125,7 +125,7 @@ public:
         return info;
     }
     
-    // 检查是否为唯一崩溃
+    // Check whether a crash is unique
     bool isUniqueCrash(const ExecutionResult& result) {
         if (result.status != ExecutionResult::Status::Crash) {
             return false;
@@ -147,31 +147,31 @@ public:
             
             output["is_crash"] = true;
             
-            // 提取崩溃签名
+            // Extract crash signature.
             CrashSignature signature = extractSignature(result);
             std::string sig_str = signature.toString();
             
-            // 检查是否为新崩溃
+            // Check whether this is a new crash.
             bool is_unique = (unique_crashes_.find(sig_str) == unique_crashes_.end());
             output["is_unique_crash"] = is_unique;
             
             if (is_unique) {
-                // 保存新崩溃
+                // Save new crash.
                 unique_crashes_[sig_str].push_back(result.output);
                 crash_signatures_[sig_str] = signature;
             }
             
-            // 更新崩溃计数
+            // Update crash counts.
             crash_counts_[sig_str]++;
             
-            // 分析崩溃严重性
+            // Analyze crash severity.
             output["severity"] = analyzeSeverity(signature);
             output["exploitability"] = analyzeExploitability(signature);
             
-            // 崩溃分类
+            // Classify crash.
             output["crash_type"] = classifyCrash(signature);
             
-            // 生成崩溃报告
+            // Generate crash report.
             output["crash_report"] = generateCrashReport(signature, result);
             
             return output;
@@ -188,10 +188,10 @@ private:
     std::string generateCrashReport(const CrashSignature& sig, const FeedbackInput& result);
 };
 
-// 性能分析算法
+// Performance analysis algorithm
 class PerformanceAnalyzer : public FeedbackAlgorithm {
 private:
-    // 性能统计
+    // Performance stats
     struct PerformanceStats {
         double avg_exec_time = 0.0;
         double min_exec_time = std::numeric_limits<double>::max();
@@ -223,16 +223,16 @@ public:
         return measureExecution([&]() {
             FeedbackOutput output;
             
-            // 更新执行时间统计
+            // Update execution-time stats.
             updateExecutionTimeStats(result.performance.execution_time_ms);
             
-            // 更新内存使用统计
+            // Update memory-usage stats.
             updateMemoryStats(result.performance);
             
-            // 更新系统调用统计
+            // Update syscall stats.
             updateSyscallStats(result.performance);
             
-            // 检测性能异常
+            // Detect performance anomalies.
             bool is_slow = detectSlowExecution(result.performance.execution_time_ms);
             bool is_memory_spike = detectMemorySpike(result.performance.memory_usage_bytes);
             
@@ -241,10 +241,10 @@ public:
             output["avg_exec_time"] = stats_.avg_exec_time;
             output["exec_time_percentile_95"] = stats_.percentile_95;
             
-            // 性能趋势分析
+            // Performance trend analysis.
             output["performance_trend"] = analyzePerformanceTrend();
             
-            // 更新上下文
+            // Update context.
             PerformanceInfo perf_info = result.performance;
             perf_info.execution_time_ms = stats_.avg_exec_time;
             ctx.setPerformanceInfo(perf_info);
@@ -263,10 +263,10 @@ private:
     std::string analyzePerformanceTrend();
 };
 
-// 约束收集算法
+// Constraint collection algorithm
 class ConstraintCollector : public FeedbackAlgorithm {
 private:
-    // 路径约束存储
+    // Path-constraint storage
     std::unordered_map<std::string, std::vector<std::shared_ptr<Constraint>>> path_constraints_;
     size_t max_constraints_per_path_ = 100;
     
@@ -285,26 +285,26 @@ public:
         return measureExecution([&]() {
             FeedbackOutput output;
             
-            // 收集路径约束
+            // Collect path constraints.
             std::string path_id = extractPathId(result);
             std::vector<std::shared_ptr<Constraint>> new_constraints = collectConstraints(result);
             
             output["path_id"] = path_id;
             output["constraint_count"] = new_constraints.size();
             
-            // 更新路径约束
+            // Update path constraints.
             updatePathConstraints(path_id, new_constraints);
             
-            // 分析约束复杂度
+            // Analyze constraint complexity.
             output["constraint_complexity"] = analyzeConstraintComplexity(new_constraints);
             output["solvable_constraints"] = countSolvableConstraints(new_constraints);
             
-            // 生成约束信息
+            // Build constraint info.
             ConstraintInfo constraint_info;
             constraint_info.path_constraints = new_constraints;
             constraint_info.has_solution = !new_constraints.empty();
             
-            // 更新上下文
+            // Update context.
             ctx.setConstraintInfo(constraint_info);
             
             return output;

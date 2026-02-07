@@ -63,14 +63,14 @@ AlgorithmCombination createAdvancedCombination(
         combo.weights["havoc"] = 0.5;
         combo.weights["bitflip"] = 0.3;
         combo.weights["splice"] = 0.2;
-    } else if (strategy == "coverage_focused") {
-        // Focus on coverage-guided algorithms - 所有高级算法已归档
-        combo.algorithm_names = {"havoc", "bitflip", "arithmetic"};
-        combo.combination_mode = "sequential";
-    } else if (strategy == "crash_focused") {
-        // Focus on crash-finding algorithms - 所有高级算法已归档
-        combo.algorithm_names = {"havoc", "bitflip", "magic_byte"};
-        combo.combination_mode = "sequential";
+	    } else if (strategy == "coverage_focused") {
+	        // Focus on coverage-guided algorithms (advanced algorithms are archived)
+	        combo.algorithm_names = {"havoc", "bitflip", "arithmetic"};
+	        combo.combination_mode = "sequential";
+	    } else if (strategy == "crash_focused") {
+	        // Focus on crash-finding algorithms (advanced algorithms are archived)
+	        combo.algorithm_names = {"havoc", "bitflip", "magic_byte"};
+	        combo.combination_mode = "sequential";
     } else {
         // Default balanced approach
         combo.algorithm_names = {"havoc", "bitflip", "arithmetic"};

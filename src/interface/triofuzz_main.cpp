@@ -320,6 +320,8 @@ void print_usage(const char* program_name) {
     std::cout << "  -dict=FILE                      Dictionary file for smart_dictionary algorithm\n";
     std::cout << "  -verbose=N                      Verbosity level (0=quiet, 1=normal)\n";
     std::cout << "  -threads=N                      Number of threads to use\n";
+    std::cout << "  --worker-threads=N               Number of worker threads (specialized mode)\n";
+    std::cout << "  --explorer-threads=N             Number of explorer threads (specialized mode)\n";
     std::cout << "  --algorithms=LIST               Comma-separated algorithm list\n";
     std::cout << "                                  Performance mode: havoc,bitflip,arithmetic,splice,magic_byte\n";
     std::cout << "                                  Full mode: (default, all 20+ algorithms enabled)\n  --enable-cmplog                  Enable CmpLog recording (default)\n  --disable-cmplog                 Disable CmpLog recording (set triofuzz_DISABLE_CMPLOG=1)\n";
@@ -414,9 +416,15 @@ triofuzz::FuzzingConfig create_fuzzing_config(int argc, char* argv[]) {
         if (arg == "-help" || arg == "--help") {
             print_usage(argv[0]);
             exit(0);
-        } else if (arg.substr(0, 20) == "--explorer-threads=") {
-            config.explorer_threads = std::stoul(arg.substr(20));
-            std::cout << "[CLI] Explorer threads set to: " << config.explorer_threads << std::endl;
+        } else if (arg.rfind("--worker-threads=", 0) == 0) {
+            const size_t worker_threads = std::stoul(arg.substr(strlen("--worker-threads=")));
+            config.worker_threads_override = worker_threads;
+            std::cout << "[CLI] Worker threads set to: " << worker_threads << std::endl;
+        } else if (arg.rfind("--explorer-threads=", 0) == 0) {
+            const size_t explorer_threads = std::stoul(arg.substr(strlen("--explorer-threads=")));
+            config.explorer_threads = explorer_threads;
+            config.explorer_threads_override = explorer_threads;
+            std::cout << "[CLI] Explorer threads set to: " << explorer_threads << std::endl;
         } else if (arg.substr(0, 21) == "--mopt-update-period=") {
             cli_overrides.mopt_update_period = std::stoi(arg.substr(21));
             if (cli_overrides.mopt_update_period <= 0) cli_overrides.mopt_update_period = 1;
@@ -607,6 +615,20 @@ triofuzz::FuzzingConfig create_fuzzing_config(int argc, char* argv[]) {
         std::cout << "  Layer 3 (MuoFuzz Markov):" << (config.enable_muofuzz_markov ? "ON" : "OFF")
                   << " (time=" << config.markov_time_period_sec << "s"
                   << ", min=" << config.markov_min_samples << ")\n";
+    }
+
+    // Normalize total thread count when explicit split is provided.
+    // In specialized-thread mode, total threads = 1 scheduler + workers + explorers.
+    if (config.worker_threads_override && config.explorer_threads_override) {
+        const size_t workers = *config.worker_threads_override;
+        const size_t explorers = *config.explorer_threads_override;
+        const size_t normalized_total = 1 + workers + explorers;
+        if (config.thread_count != normalized_total) {
+            std::cout << "[WARNING] -threads=" << config.thread_count
+                      << " does not match (1 + --worker-threads + --explorer-threads)="
+                      << normalized_total << ". Using " << normalized_total << " threads." << std::endl;
+        }
+        config.thread_count = normalized_total;
     }
 
     return config;

@@ -105,14 +105,7 @@ TRIOFUZZ_ARGS="$TRIOFUZZ_ARGS --checkpoint-dir=$SHARED/checkpoints"
 
 mkdir -p "$SHARED/checkpoints"
 
-# ========== TrioFuzz Unified Learning Configuration ==========
-# 启用三层统一学习模式
-# 已融合 CollabFuzz 的高级算法到算子集合中：
-#   - cmplog: 比较指令日志（发现 SQL 关键字）
-#   - redqueen: 输入-状态映射（约束求解）
-#   - smart_dictionary: 智能字典学习
-#   - token: Token 级语义变异
-#   - magic_byte: 魔术字节插入
+
 TRIOFUZZ_ARGS="$TRIOFUZZ_ARGS --use-triofuzz-unified"
 
 # Layer 1: Thompson Sampling (configuration selection)

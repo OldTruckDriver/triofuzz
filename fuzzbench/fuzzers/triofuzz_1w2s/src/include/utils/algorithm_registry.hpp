@@ -11,7 +11,7 @@
 
 namespace triofuzz {
 
-// 算法元数据
+// Algorithm metadata
 struct AlgorithmMetadata {
     std::string name;
     std::string description;
@@ -22,7 +22,7 @@ struct AlgorithmMetadata {
     std::map<std::string, std::string> parameters_description;
     std::map<std::string, std::string> metadata;
     
-    // 性能特征
+    // Performance characteristics
     struct PerformanceCharacteristics {
         double avg_execution_time_ms = 0.0;
         size_t memory_usage_bytes = 0;
@@ -30,7 +30,7 @@ struct AlgorithmMetadata {
         bool is_deterministic = true;
     } performance;
     
-    // 兼容性信息
+    // Compatibility info
     struct Compatibility {
         std::vector<std::string> compatible_algorithms;
         std::vector<std::string> incompatible_algorithms;
@@ -38,50 +38,50 @@ struct AlgorithmMetadata {
     } compatibility;
 };
 
-// 算法注册表
+// Algorithm registry
 class AlgorithmRegistry {
 private:
-    // 算法工厂类型
+    // Factory type
     using AlgorithmFactoryBase = std::function<std::shared_ptr<void>()>;
     
-    // 算法工厂模板
+    // Typed factory alias
     template<typename AlgorithmType>
     using TypedAlgorithmFactory = std::function<std::shared_ptr<AlgorithmType>()>;
     
-    // 存储结构
+    // Storage entry
     struct RegistryEntry {
         AlgorithmFactoryBase factory;
         AlgorithmMetadata metadata;
         std::type_index type_index;
         bool is_enabled = true;
         
-        // 添加构造函数以正确初始化type_index
+        // Constructor ensures type_index is initialized.
         RegistryEntry() : type_index(typeid(void)) {}
         
         RegistryEntry(AlgorithmFactoryBase f, const AlgorithmMetadata& m, std::type_index ti, bool enabled = true)
             : factory(f), metadata(m), type_index(ti), is_enabled(enabled) {}
     };
     
-    // 注册表
+    // Registry
     std::unordered_map<std::string, RegistryEntry> registry_;
     mutable std::shared_mutex registry_mutex_;
     
-    // 类型到算法名称的映射
+    // Map from type to algorithm names
     std::unordered_map<std::type_index, std::vector<std::string>> type_to_algorithms_;
     
-    // 算法实例缓存（用于单例算法）
+    // Instance cache (for singleton-like algorithms)
     mutable std::unordered_map<std::string, std::weak_ptr<void>> instance_cache_;
     mutable std::mutex cache_mutex_;
     
-    // 单例实例
+    // Singleton instance
     static std::unique_ptr<AlgorithmRegistry> instance_;
     static std::mutex instance_mutex_;
     
 public:
-    // 构造函数改为公有
+    // Constructor is public.
     AlgorithmRegistry() = default;
     
-    // 获取单例实例
+    // Get singleton instance
     static AlgorithmRegistry& getInstance() {
         std::lock_guard<std::mutex> lock(instance_mutex_);
         if (!instance_) {
@@ -90,13 +90,13 @@ public:
         return *instance_;
     }
     
-    // 禁用拷贝和移动
+    // Disable copy and move
     AlgorithmRegistry(const AlgorithmRegistry&) = delete;
     AlgorithmRegistry& operator=(const AlgorithmRegistry&) = delete;
     AlgorithmRegistry(AlgorithmRegistry&&) = delete;
     AlgorithmRegistry& operator=(AlgorithmRegistry&&) = delete;
     
-    // 注册算法
+    // Register algorithm
     template<typename AlgorithmType>
     void registerAlgorithm(const std::string& name, 
                           TypedAlgorithmFactory<AlgorithmType> factory,
@@ -118,7 +118,7 @@ public:
         type_to_algorithms_[entry.type_index].push_back(name);
     }
     
-    // 接受AlgorithmFactory类型的注册方法
+    // Register using AlgorithmFactory
     void registerAlgorithm(const std::string& name, AlgorithmFactory factory) {
         std::unique_lock<std::shared_mutex> lock(registry_mutex_);
         
@@ -137,18 +137,18 @@ public:
         type_to_algorithms_[entry.type_index].push_back(name);
     }
     
-    // 便捷注册方法（使用默认工厂）
+    // Convenience registration (default factory)
     template<typename AlgorithmClass>
     void registerAlgorithm(const std::string& name, const AlgorithmMetadata& metadata) {
         auto factory = []() { return std::make_shared<AlgorithmClass>(); };
         registerAlgorithm<AlgorithmClass>(name, factory, metadata);
     }
     
-    // 创建算法实例
+    // Create algorithm instance
     template<typename AlgorithmType>
     std::shared_ptr<AlgorithmType> create(const std::string& name, bool use_cache = false) {
         if (use_cache) {
-            // 检查缓存
+            // Check cache
             std::lock_guard<std::mutex> cache_lock(cache_mutex_);
             auto it = instance_cache_.find(name);
             if (it != instance_cache_.end()) {
@@ -158,7 +158,7 @@ public:
             }
         }
         
-        // 创建新实例
+        // Create new instance
         std::shared_lock<std::shared_mutex> lock(registry_mutex_);
         
         auto it = registry_.find(name);
@@ -180,7 +180,7 @@ public:
         return instance;
     }
     
-    // 批量创建算法
+    // Create algorithms in batch
     template<typename AlgorithmType>
     std::vector<std::shared_ptr<AlgorithmType>> createAll(AlgorithmType type) {
         std::shared_lock<std::shared_mutex> lock(registry_mutex_);
@@ -195,7 +195,7 @@ public:
                     try {
                         algorithms.push_back(create<AlgorithmType>(name));
                     } catch (const std::exception& e) {
-                        // 记录错误但继续
+                        // Ignore errors and continue.
                     }
                 }
             }
@@ -204,7 +204,7 @@ public:
         return algorithms;
     }
     
-    // 获取算法元数据
+    // Get algorithm metadata
     std::optional<AlgorithmMetadata> getMetadata(const std::string& name) const {
         std::shared_lock<std::shared_mutex> lock(registry_mutex_);
         
@@ -216,7 +216,7 @@ public:
         return std::nullopt;
     }
     
-    // 获取所有注册的算法
+    // Get all registered algorithms
     std::vector<std::string> getAllAlgorithms() const {
         std::shared_lock<std::shared_mutex> lock(registry_mutex_);
         
@@ -230,7 +230,7 @@ public:
         return names;
     }
     
-    // 获取特定类型的所有算法
+    // Get all algorithms of a specific type
     std::vector<std::string> getAlgorithmsByType(AlgorithmType type) const {
         std::shared_lock<std::shared_mutex> lock(registry_mutex_);
         
@@ -245,7 +245,7 @@ public:
         return names;
     }
     
-    // 获取带有特定标签的算法
+    // Get algorithms with a specific tag
     std::vector<std::string> getAlgorithmsByTag(const std::string& tag) const {
         std::shared_lock<std::shared_mutex> lock(registry_mutex_);
         
@@ -261,7 +261,7 @@ public:
         return names;
     }
     
-    // 查询兼容算法
+    // Query compatible algorithms
     std::vector<std::string> getCompatibleAlgorithms(const std::string& algorithm) const {
         std::shared_lock<std::shared_mutex> lock(registry_mutex_);
         
@@ -273,7 +273,7 @@ public:
         return {};
     }
     
-    // 查询推荐组合
+    // Query recommended combinations
     std::vector<std::string> getRecommendedCombinations(const std::string& algorithm) const {
         std::shared_lock<std::shared_mutex> lock(registry_mutex_);
         
@@ -285,7 +285,7 @@ public:
         return {};
     }
     
-    // 启用/禁用算法
+    // Enable/disable algorithm
     void enableAlgorithm(const std::string& name, bool enable = true) {
         std::unique_lock<std::shared_mutex> lock(registry_mutex_);
         
@@ -299,13 +299,13 @@ public:
         enableAlgorithm(name, false);
     }
     
-    // 检查算法是否已注册
+    // Check whether algorithm is registered
     bool isRegistered(const std::string& name) const {
         std::shared_lock<std::shared_mutex> lock(registry_mutex_);
         return registry_.find(name) != registry_.end();
     }
     
-    // 检查算法是否启用
+    // Check whether algorithm is enabled
     bool isEnabled(const std::string& name) const {
         std::shared_lock<std::shared_mutex> lock(registry_mutex_);
         
@@ -317,13 +317,13 @@ public:
         return false;
     }
     
-    // 清除实例缓存
+    // Clear instance cache
     void clearCache() {
         std::lock_guard<std::mutex> lock(cache_mutex_);
         instance_cache_.clear();
     }
     
-    // 获取算法统计信息
+    // Get registry statistics
     struct RegistryStats {
         size_t total_algorithms = 0;
         size_t enabled_algorithms = 0;
@@ -352,16 +352,16 @@ public:
         return stats;
     }
     
-    // 注册算法组合
+    // Register algorithm combination
     void registerCombination(const std::string& name,
                            const std::vector<std::string>& algorithms,
                            const std::string& mode) {
-        // 存储预定义的算法组合
-        // 可以扩展以支持更复杂的组合配置
+        // Store predefined algorithm combinations.
+        // Can be extended to support more complex combination configs.
     }
 };
 
-// 算法自动注册器（用于静态注册）
+// Algorithm registrar (for static registration)
 template<typename AlgorithmClass>
 class AlgorithmRegistrar {
 public:
@@ -370,11 +370,11 @@ public:
     }
 };
 
-// 宏定义简化注册
+// Macro to simplify registration
 #define REGISTER_ALGORITHM(AlgorithmClass, name, ...) \
     static AlgorithmRegistrar<AlgorithmClass> _registrar_##AlgorithmClass(name, __VA_ARGS__)
 
-// 算法工厂辅助类
+// Algorithm factory helper
 template<typename BaseType>
 class AlgorithmFactoryHelper {
 public:

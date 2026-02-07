@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.16)
 project(TrioFuzz VERSION 1.0.0 LANGUAGES C CXX)
 
 # TrioFuzz: Unified Multi-Algorithm Fuzzer
-# Integrates Thompson Sampling + MOpt PSO + MuoFuzz Markov Chain
+# Integrates XFuzz Thompson Sampling + MOpt PSO + MuoFuzz Markov Chain
 
 # 设置C++标准
 set(CMAKE_CXX_STANDARD 17)
@@ -75,16 +75,21 @@ file(GLOB_RECURSE TRIOFUZZ_SOURCES
     "src/ui/*.cpp"
 )
 
-# 排除归档目录中的文件（非默认设置的代码已移至 archive/）
-list(FILTER TRIOFUZZ_SOURCES EXCLUDE REGEX ".*/archive/.*")
-
 # 移除main.cpp从库源文件中
 list(REMOVE_ITEM TRIOFUZZ_SOURCES "${CMAKE_SOURCE_DIR}/src/main.cpp")
 
 # 排除TUI主程序文件（避免多个main函数冲突）
 list(REMOVE_ITEM TRIOFUZZ_SOURCES "${CMAKE_SOURCE_DIR}/src/ui/tui_main.cpp")
 
-# 额外的源文件（不在 GLOB 路径中，或需要显式添加）
+# 所有算法现在都编译，通过 algorithm_config.hpp 控制启用/禁用
+# 临时排除有接口问题的instrumentation算法
+list(REMOVE_ITEM TRIOFUZZ_SOURCES "${CMAKE_SOURCE_DIR}/src/algorithms/instrumentation/cmplog_instrumentation.cpp")
+list(REMOVE_ITEM TRIOFUZZ_SOURCES "${CMAKE_SOURCE_DIR}/src/algorithms/instrumentation/control_flow_instrumentation.cpp")
+list(REMOVE_ITEM TRIOFUZZ_SOURCES "${CMAKE_SOURCE_DIR}/src/algorithms/instrumentation/data_flow_instrumentation.cpp")
+list(REMOVE_ITEM TRIOFUZZ_SOURCES "${CMAKE_SOURCE_DIR}/src/algorithms/instrumentation/edge_coverage_instrumentation.cpp")
+list(REMOVE_ITEM TRIOFUZZ_SOURCES "${CMAKE_SOURCE_DIR}/src/algorithms/instrumentation/taint_tracking.cpp")
+
+# 添加我们的新文件
 set(ADDITIONAL_SOURCES
     "${CMAKE_SOURCE_DIR}/src/core/state_manager.cpp"
     "${CMAKE_SOURCE_DIR}/src/core/engine_thread_helpers.cpp"
@@ -93,14 +98,42 @@ set(ADDITIONAL_SOURCES
     "${CMAKE_SOURCE_DIR}/src/core/enhanced_combination_executor.cpp"
     "${CMAKE_SOURCE_DIR}/src/core/thompson_sampling.cpp"
     "${CMAKE_SOURCE_DIR}/src/algorithms/optimization/pso_specialization.cpp"
+    "${CMAKE_SOURCE_DIR}/src/algorithms/optimization/multi_objective_optimization.cpp"
     "${CMAKE_SOURCE_DIR}/src/utils/random_utils.cpp"
+    
+    # 注意：以下算法已被归档到 archive/unused_algorithms/
+    # adaptive_length, angora_gradient_descent, libfuzzer_structured,
+    # zest, adaptive_mutation_orchestrator, reinforcement_learning, neural_network,
+    # transformer, advanced_coverage_scheduler,
+    # enhanced_energy_scheduler, binary_pso, angora_strategy, icc_aggressive
+    # 已恢复使用: gradient_descent, deterministic, smart_format, aflgo,
+    # runtime_dictionary, value_approximation, rare_edge_scheduler, fast_scheduler, performance_analyzer
+    # "${CMAKE_SOURCE_DIR}/src/algorithms/mutation/libfuzzer_mutation.cpp"
+    # "${CMAKE_SOURCE_DIR}/src/algorithms/mutation/fairfuzz_mutation.cpp" # 已解耦，不再使用
+    # "${CMAKE_SOURCE_DIR}/src/algorithms/mutation/zest_mutation.cpp"
+    # "${CMAKE_SOURCE_DIR}/src/algorithms/mutation/neuzz_mutation.cpp" # 已归档
+    # "${CMAKE_SOURCE_DIR}/src/algorithms/scheduling/mopt_scheduler.cpp" # 已归档
 
-    # 接口文件
+    # 解耦后的新算法 - rare_branch已归档
+    # "${CMAKE_SOURCE_DIR}/src/algorithms/mutation/rare_branch_mutation.cpp"
+    
+    # 新的简洁接口文件
     "${CMAKE_SOURCE_DIR}/src/interface/triofuzz_main.cpp"
-
+    
     # 保留的算法源文件
-    "${CMAKE_SOURCE_DIR}/src/algorithms/mutation/redqueen_mutation.cpp"
+    "${CMAKE_SOURCE_DIR}/src/algorithms/mutation/redqueen_mutation.cpp" # 已归档 - 极慢
+    # "${CMAKE_SOURCE_DIR}/src/algorithms/mutation/aflgo_mutation.cpp" # 已归档
+    # "${CMAKE_SOURCE_DIR}/src/algorithms/mutation/sage_mutation.cpp"
+    # "${CMAKE_SOURCE_DIR}/src/algorithms/mutation/honggfuzz_mutation.cpp" # 已归档
+    # "${CMAKE_SOURCE_DIR}/src/algorithms/mutation/format_aware_mutation.cpp" # 已归档
+    # "${CMAKE_SOURCE_DIR}/src/algorithms/mutation/icc_profile_mutation.cpp" # 已归档
+    # "${CMAKE_SOURCE_DIR}/src/algorithms/mutation/jpeg_mutation.cpp" # 已归档
+
+    # 恢复的算法
     "${CMAKE_SOURCE_DIR}/src/algorithms/scheduling/rare_edge_scheduler.cpp"
+    # "${CMAKE_SOURCE_DIR}/src/algorithms/scheduling/fast_scheduler.cpp" # 已归档
+    # "${CMAKE_SOURCE_DIR}/src/algorithms/feedback/performance_analyzer.cpp" # 已归档
+    # runtime_dictionary 和 value_approximation 是 header-only 实现
 )
 
 # 创建TrioFuzz库

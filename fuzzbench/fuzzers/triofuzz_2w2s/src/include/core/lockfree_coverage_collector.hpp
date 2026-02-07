@@ -18,13 +18,13 @@
 
 namespace triofuzz {
 
-// 高性能无锁覆盖率收集器
+// High-performance lock-free coverage collector
 class LockFreeCoverageCollector {
 public:
-    static constexpr size_t MAP_SIZE = 65536;  // AFL标准大小
+    static constexpr size_t MAP_SIZE = 65536;  // AFL-standard size
     static constexpr size_t CACHE_LINE_SIZE = 64;
 
-    // 确保缓存行对齐，避免false sharing
+    // Ensure cache-line alignment to avoid false sharing.
     struct alignas(CACHE_LINE_SIZE) CoverageData {
         std::atomic<uint8_t> bitmap[MAP_SIZE];
         std::atomic<uint64_t> edge_discovery_count;
@@ -35,7 +35,7 @@ public:
         }
 
         void reset() {
-            // 使用memset批量初始化
+            // Bulk initialize with memset.
             std::memset((void*)bitmap, 0, sizeof(bitmap));
             edge_discovery_count = 0;
             total_edges = 0;
@@ -43,7 +43,7 @@ public:
     };
 
 private:
-    // 线程本地存储，减少竞争
+    // Thread-local storage to reduce contention.
     struct ThreadLocalData {
         std::array<uint8_t, MAP_SIZE> local_bitmap{};
         std::vector<uint32_t> new_edges;
@@ -56,60 +56,60 @@ private:
         }
     };
 
-    // 主覆盖率数据
+    // Main coverage data
     std::unique_ptr<CoverageData> coverage_data_;
 
-    // 线程本地缓存
+    // Thread-local cache
     static thread_local ThreadLocalData tls_data_;
 
-    // 批量更新阈值
+    // Batch update threshold
     static constexpr size_t BATCH_UPDATE_THRESHOLD = 100;
 
-    // SIMD优化的位图比较
+    // SIMD-optimized bitmap comparison
     bool hasNewCoverageSSE(const uint8_t* current, const uint8_t* new_coverage) const;
 
 public:
     LockFreeCoverageCollector();
     ~LockFreeCoverageCollector() = default;
 
-    // 禁止拷贝和移动（因为包含atomic成员）
+    // Disable copy/move (contains atomic members).
     LockFreeCoverageCollector(const LockFreeCoverageCollector&) = delete;
     LockFreeCoverageCollector& operator=(const LockFreeCoverageCollector&) = delete;
     LockFreeCoverageCollector(LockFreeCoverageCollector&&) = delete;
     LockFreeCoverageCollector& operator=(LockFreeCoverageCollector&&) = delete;
 
-    // 核心接口 - 无锁记录边覆盖
+    // Core API - lock-free edge recording
     inline bool recordEdge(uint32_t edge_id) {
         if (edge_id >= MAP_SIZE) {
-            edge_id %= MAP_SIZE;  // 简单哈希
+            edge_id %= MAP_SIZE;  // Simple hash
         }
 
-        // 先更新线程本地缓存
+        // Update thread-local cache first.
         uint8_t& local_val = tls_data_.local_bitmap[edge_id];
         if (local_val == 0) {
             local_val = 1;
             tls_data_.new_edges.push_back(edge_id);
             tls_data_.hits++;
 
-            // 达到批量更新阈值时，更新全局位图
+            // When the batch threshold is reached, update the global bitmap.
             if (tls_data_.hits >= BATCH_UPDATE_THRESHOLD) {
                 flushThreadLocal();
             }
             return true;
         }
 
-        // 检查全局位图（只读，无锁）
+        // Check global bitmap (read-only, lock-free).
         uint8_t global_val = coverage_data_->bitmap[edge_id].load(std::memory_order_relaxed);
         return global_val == 0;
     }
 
-    // 批量记录覆盖率
+    // Record coverage in batch
     size_t recordCoverageBatch(const std::vector<uint32_t>& edges);
 
-    // 快速检查是否有新覆盖
+    // Fast check for new coverage
     bool hasNewCoverage(const std::bitset<MAP_SIZE>& test_coverage) const;
 
-    // 获取当前覆盖率统计
+    // Get current coverage stats
     struct CoverageStats {
         size_t total_edges;
         size_t unique_edges;
@@ -119,31 +119,31 @@ public:
 
     CoverageStats getStats() const;
 
-    // 获取覆盖率位图快照（用于种子去重）
+    // Get coverage bitmap snapshot (for seed dedup).
     std::bitset<MAP_SIZE> getCoverageBitmap() const;
 
-    // 合并其他收集器的覆盖率（用于多线程合并）
+    // Merge coverage from another collector (for multi-thread merge).
     void merge(const LockFreeCoverageCollector& other);
 
-    // 重置覆盖率
+    // Reset coverage
     void reset();
 
-    // 强制刷新线程本地缓存到全局
+    // Force flush thread-local cache to global.
     void flushThreadLocal();
 
-    // 获取稀有边（命中次数少的边）
+    // Get rare edges (low hit counts).
     std::vector<uint32_t> getRareEdges(uint8_t threshold = 3) const;
 
-    // 获取所有已覆盖的边ID列表 (用于互补性实验分析)
+    // Get list of all covered edge IDs (for complementarity analysis).
     std::vector<uint32_t> getCoveredEdges() const;
 
-    // 保存已覆盖的边到文件 (用于互补性实验分析)
+    // Save covered edges to file (for complementarity analysis).
     bool saveCoveredEdgesToFile(const std::string& output_path) const;
 
-    // 使用SIMD加速的覆盖率比较
+    // SIMD-accelerated coverage comparison
     size_t compareAndUpdateCoverage(const uint8_t* new_coverage, size_t size);
 
-    // 性能监控
+    // Performance monitoring
     struct PerformanceMetrics {
         std::atomic<uint64_t> edge_updates{0};
         std::atomic<uint64_t> batch_updates{0};
@@ -160,21 +160,21 @@ public:
 
     PerformanceMetrics metrics;
 
-    // 获取性能报告
+    // Get performance report
     std::string getPerformanceReport() const;
 
 private:
-    // 原子更新全局位图
+    // Atomically update global bitmap
     bool updateGlobalBitmap(uint32_t edge_id);
 
-    // 批量原子更新
+    // Batch atomic update
     void batchUpdateGlobalBitmap(const std::vector<uint32_t>& edges);
 
-    // 使用CAS操作的安全更新
+    // Safe update using CAS
     bool compareAndSwapEdge(uint32_t edge_id, uint8_t expected, uint8_t desired);
 };
 
-// 全局实例获取
+// Global instance accessor
 LockFreeCoverageCollector& getGlobalCoverageCollector();
 
 } // namespace triofuzz

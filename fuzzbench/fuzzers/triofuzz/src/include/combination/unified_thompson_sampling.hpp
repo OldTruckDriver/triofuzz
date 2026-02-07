@@ -18,10 +18,10 @@
 namespace triofuzz {
 
 // Unified Thompson Sampling Implementation
-// 统一的Thompson Sampling实现，整合了所有优化特性
+// Unified Thompson Sampling implementation with integrated optimizations
 class UnifiedThompsonSampling {
 public:
-    // 批次信息
+    // Batch information
     struct BatchInfo {
         std::string combination_name;
         size_t executions = 0;
@@ -40,7 +40,7 @@ public:
         }
     };
 
-    // 组合统计信息
+    // Combination statistics
     struct CombinationStats {
         size_t total_uses = 0;
         size_t successes = 0;
@@ -59,7 +59,7 @@ public:
     };
 
 private:
-    // Beta分布实现
+    // Beta distribution implementation
     class BetaDistribution {
     private:
         std::atomic<double> alpha_{1.0};
@@ -108,7 +108,7 @@ private:
         }
     };
 
-    // 多样性追踪器
+    // Diversity tracker
     class DiversityTracker {
     private:
         std::deque<std::string> usage_history_;
@@ -162,7 +162,7 @@ private:
         }
     };
 
-    // 探索增强器
+    // Exploration booster
     class ExplorationBooster {
     private:
         std::atomic<bool> active_{false};
@@ -195,7 +195,7 @@ private:
         }
     };
 
-    // 批次管理器
+    // Batch manager
     class BatchManager {
     private:
         BatchInfo current_batch_;
@@ -233,30 +233,30 @@ private:
         bool shouldSwitchCombination() const {
             std::lock_guard<std::mutex> lock(mutex_);
 
-            // 基本条件：达到批次大小
+            // Basic condition: reached batch size
             if (current_batch_.executions >= current_batch_.batch_size) {
                 return true;
             }
 
-            // 最小执行数保证
+            // Minimum execution count guarantee
             if (current_batch_.executions < min_batch_size_.load()) {
                 return false;
             }
 
-            // 时间检查
+            // Time check
             auto elapsed = current_batch_.getElapsedTime();
 
-            // 覆盖率停滞检查
+            // Stagnation check
             if (consecutive_no_improvement_.load() > 200 && elapsed.count() > 30) {
                 return true;
             }
 
-            // 最大时间限制
-            if (elapsed.count() > 300) {  // 5分钟
+            // Maximum time limit
+            if (elapsed.count() > 300) {  // 5 minutes
                 return true;
             }
 
-            // 性能极差时提前结束
+            // Early exit for very poor performance
             if (current_batch_.executions > 50 &&
                 current_batch_.getAverageReward() < 0.1 &&
                 elapsed.count() > 60) {
@@ -276,8 +276,8 @@ private:
             size_t base = base_batch_size_.load();
             size_t min_size = min_batch_size_.load();
 
-            // 改进: 给低性能算法更多机会，避免过早放弃
-            // 对于结构化fuzzing，某些算法需要更多尝试才能显示效果
+            // Improvement: give low-performing algorithms more chances to avoid giving up too early.
+            // For structured fuzzing, some algorithms need more trials to show effect.
             if (performance_score > 0.8) {
                 return std::min(max_batch_size_.load(), base * 3);
             } else if (performance_score > 0.5) {
@@ -285,13 +285,13 @@ private:
             } else if (performance_score > 0.3) {
                 return std::max(min_size * 3, base / 2);  // 300 vs 500
             } else {
-                // 即使性能低，也给500次最小尝试
+                // Even with low performance, allow at least 500 trials.
                 return std::max(size_t(500), min_size * 5);  // 500 vs 100
             }
         }
     };
 
-    // 成员变量 - 使用unique_ptr避免拷贝问题
+    // Members - use unique_ptr to avoid copying
     std::map<std::string, std::unique_ptr<BetaDistribution>> distributions_;
     std::map<std::string, CombinationStats> statistics_;
 
@@ -302,25 +302,25 @@ private:
     std::unique_ptr<LateStageOptimizer> late_stage_optimizer_;
     std::unique_ptr<AdaptiveAlgorithmSelector> algorithm_selector_;
 
-    // UCB参数
-    std::atomic<double> ucb_c_{3.0};  // 提高UCB探索bonus: 2.0 -> 3.0
+    // UCB parameters
+    std::atomic<double> ucb_c_{3.0};  // Increase UCB exploration bonus: 2.0 -> 3.0
     std::atomic<size_t> total_selections_{0};
 
-    // 探索参数
-    std::atomic<double> exploration_rate_{0.30};  // 提高初始探索率: 15% -> 30%
-    std::atomic<double> decay_factor_{0.9998};    // 降低衰减速度: 0.9995 -> 0.9998
+    // Exploration parameters
+    std::atomic<double> exploration_rate_{0.30};  // Increase initial exploration rate: 15% -> 30%
+    std::atomic<double> decay_factor_{0.9998};    // Slow down decay: 0.9995 -> 0.9998
 
-    // Bandit重置机制
+    // Bandit reset mechanism
     std::atomic<size_t> cycles_since_reset_{0};
-    std::atomic<size_t> reset_threshold_{30000};  // 更频繁重置: 50k -> 30k
+    std::atomic<size_t> reset_threshold_{30000};  // Reset more frequently: 50k -> 30k
 
-    // 线程安全
+    // Thread safety
     mutable std::shared_mutex data_mutex_;
 
-    // 随机数生成器
+    // Random number generator
     mutable std::mt19937 rng_{std::random_device{}()};
 
-    // 上下文引用
+    // Context reference
     const SharedContext* context_ = nullptr;
 
 public:
@@ -331,45 +331,45 @@ public:
         initializeDefaultCombinations();
     }
 
-    // 设置上下文
+    // Set context
     void setContext(const SharedContext* context) {
         context_ = context;
     }
 
-    // 选择下一个算法组合
+    // Select the next algorithm combination
     AlgorithmCombination selectNext() {
-        // 更新状态
+        // Update state
         cycles_since_reset_.fetch_add(1);
         exploration_booster_.update();
         total_selections_.fetch_add(1);
 
-        // 检查是否需要重置
+        // Check whether reset is needed
         if (shouldResetBandits()) {
             performPartialReset();
         }
 
-        // 检查多样性
+        // Check diversity
         if (diversity_tracker_.isConverged()) {
             exploration_booster_.activate(1000, 2.0);
             std::cout << "[UnifiedThompson] Low diversity detected, boosting exploration\n";
         }
 
-        // 检查批次是否应该结束
+        // Check whether the current batch should end
         if (batch_manager_.shouldSwitchCombination()) {
             endCurrentBatch();
         }
 
-        // 选择新组合
+        // Select new combination
         std::string selected = selectCombinationWithUCB();
 
-        // 记录使用
+        // Record usage
         diversity_tracker_.recordUsage(selected);
 
-        // 开始新批次
+        // Start new batch
         double performance = getPerformanceScore(selected);
         batch_manager_.startNewBatch(selected, performance);
 
-        // 更新统计
+        // Update statistics
         {
             std::unique_lock<std::shared_mutex> lock(data_mutex_);
             statistics_[selected].last_used = std::chrono::steady_clock::now();
@@ -378,15 +378,15 @@ public:
         return parseCombinationString(selected);
     }
 
-    // 更新奖励
+    // Update reward
     void updateReward(const AlgorithmCombination& combo, double reward,
                      bool found_coverage = false, bool found_crash = false) {
         std::string combo_key = combo.toString();
 
-        // 记录批次执行
+        // Record batch execution
         batch_manager_.recordExecution(reward);
 
-        // 更新统计
+        // Update statistics
         {
             std::unique_lock<std::shared_mutex> lock(data_mutex_);
 
@@ -395,7 +395,7 @@ public:
             stats.total_reward += reward;
             stats.best_reward = std::max(stats.best_reward, reward);
 
-            // 确定成功标准
+            // Determine success criteria
             double avg_reward = getGlobalAverageReward();
             bool success = reward > avg_reward * 0.6 || found_coverage || found_crash;
 
@@ -404,46 +404,46 @@ public:
                 stats.last_success_time = std::chrono::steady_clock::now();
             }
 
-            // 更新Beta分布
+            // Update Beta distribution
             if (distributions_.find(combo_key) == distributions_.end()) {
                 distributions_[combo_key] = std::make_unique<BetaDistribution>(2.0, 1.0);
             }
 
-            // 自适应权重更新
+            // Adaptive weight update
             double update_weight = calculateUpdateWeight(reward, stats);
             distributions_[combo_key]->update(success, update_weight);
         }
 
-        // 更新算法选择器
+        // Update algorithm selector
         if (algorithm_selector_ && (found_coverage || found_crash)) {
             for (const auto& algo : combo.algorithm_names) {
                 algorithm_selector_->recordAlgorithmResult(algo, reward, found_coverage, found_crash);
             }
         }
 
-        // 自适应参数调整
+        // Adaptive parameter tuning
         adaptExplorationParameters();
     }
 
-    // 获取当前批次信息
+    // Get current batch info
     BatchInfo getCurrentBatchInfo() const {
         return batch_manager_.getCurrentBatch();
     }
 
-    // 获取统计信息
+    // Get statistics
     std::map<std::string, CombinationStats> getStatistics() const {
         std::shared_lock<std::shared_mutex> lock(data_mutex_);
         return statistics_;
     }
 
-    // 获取性能报告
+    // Get performance report
     std::string getPerformanceReport() const {
         std::stringstream ss;
         ss << "\n=== Thompson Sampling Performance Report ===\n";
 
         std::shared_lock<std::shared_mutex> lock(data_mutex_);
 
-        // 排序组合by平均奖励
+        // Rank combinations by average reward
         std::vector<std::pair<std::string, double>> rankings;
         for (const auto& [combo, stats] : statistics_) {
             if (stats.total_uses > 0) {
@@ -478,25 +478,25 @@ public:
     }
 
 private:
-    // 初始化默认组合
+    // Initialize default combinations
     void initializeDefaultCombinations() {
-        // 高性能组合
+        // High-performance combinations
         distributions_["sequential[havoc,afl_plus_plus]"] = std::make_unique<BetaDistribution>(3.0, 1.0);
-        distributions_["parallel[bitflip,arithmetic]"] = std::make_unique<BetaDistribution>(2.5, 1.0);  // 提升优先级
+        distributions_["parallel[bitflip,arithmetic]"] = std::make_unique<BetaDistribution>(2.5, 1.0);  // Higher priority
         distributions_["weighted[rare_branch,neuzz]"] = std::make_unique<BetaDistribution>(2.0, 1.0);
 
-        // 结构化fuzzing组合 - 提升初始先验
+        // Structured-fuzzing combinations - stronger initial prior
         distributions_["sequential[deterministic,cmplog]"] = std::make_unique<BetaDistribution>(4.0, 1.0);
         distributions_["sequential[redqueen,magic_byte]"] = std::make_unique<BetaDistribution>(3.5, 1.0);
         distributions_["sequential[format_aware,smart_dictionary]"] = std::make_unique<BetaDistribution>(3.5, 1.0);
         distributions_["parallel[bitflip,deterministic]"] = std::make_unique<BetaDistribution>(3.0, 1.0);
 
-        // 探索性组合
+        // Exploratory combinations
         distributions_["sequential[gradient_descent,smart_dictionary]"] = std::make_unique<BetaDistribution>(2.5, 1.0);
         distributions_["parallel[splice,length_extension]"] = std::make_unique<BetaDistribution>(2.0, 1.0);
     }
 
-    // 使用UCB选择组合
+    // Select combinations using UCB
     std::string selectCombinationWithUCB() {
         std::vector<std::pair<std::string, double>> candidates;
 
@@ -509,44 +509,44 @@ private:
             }
         }
 
-        // 如果没有候选，创建新组合
+        // If there are no candidates, create a new combination
         if (candidates.empty()) {
             return createInnovativeCombination();
         }
 
-        // Epsilon-greedy选择
+        // Epsilon-greedy selection
         std::uniform_real_distribution<double> uniform(0.0, 1.0);
         double epsilon = exploration_rate_.load() * exploration_booster_.getMultiplier();
 
         if (uniform(rng_) < epsilon) {
-            // 探索：随机选择
+            // Explore: random selection
             std::uniform_int_distribution<size_t> rand_idx(0, candidates.size() - 1);
             return candidates[rand_idx(rng_)].first;
         } else {
-            // 利用：选择最高分
+            // Exploit: choose the highest score
             auto best = std::max_element(candidates.begin(), candidates.end(),
                 [](const auto& a, const auto& b) { return a.second < b.second; });
             return best->first;
         }
     }
 
-    // 计算组合得分
+    // Calculate combination score
     double calculateCombinationScore(const std::string& combo_name,
                                      const std::unique_ptr<BetaDistribution>& dist) {
-        // Thompson Sampling基础分
+        // Thompson sampling base score
         double ts_score = dist->sample();
 
-        // UCB探索加成 + 最小尝试次数保证
+        // UCB exploration bonus + minimum trial guarantee
         double ucb_bonus = 0.0;
         auto stats_it = statistics_.find(combo_name);
 
-        // 关键改进: 保证每个组合至少尝试1000次
+        // Key improvement: ensure each combination is tried at least 1000 times
         const size_t MIN_TRIALS = 1000;
 
         if (stats_it != statistics_.end() && stats_it->second.total_uses > 0) {
             size_t uses = stats_it->second.total_uses;
 
-            // 如果尝试次数 < MIN_TRIALS, 给予极高bonus强制探索
+            // If uses < MIN_TRIALS, give a very high bonus to force exploration
             if (uses < MIN_TRIALS) {
                 ucb_bonus = 20.0 * (1.0 - static_cast<double>(uses) / MIN_TRIALS);
             } else {
@@ -554,14 +554,14 @@ private:
                     std::log(total_selections_.load()) / uses);
             }
         } else {
-            ucb_bonus = 25.0;  // 未探索组合的超高奖励: 10.0 -> 25.0
+            ucb_bonus = 25.0;  // Huge bonus for unseen combinations: 10.0 -> 25.0
         }
 
-        // 多样性加成
+        // Diversity bonus
         size_t recent_usage = diversity_tracker_.getRecentUsage(combo_name);
         double diversity_bonus = 1.0 / (1.0 + recent_usage * 0.1);
 
-        // 时间衰减加成
+        // Time-decay bonus
         double time_bonus = 0.0;
         if (stats_it != statistics_.end()) {
             auto time_since_use = std::chrono::steady_clock::now() - stats_it->second.last_used;
@@ -571,7 +571,7 @@ private:
             }
         }
 
-        // 后期优化调整
+        // Late-stage adjustments
         if (isLateStage()) {
             ucb_bonus *= 1.5;
             diversity_bonus *= 2.0;
@@ -580,24 +580,24 @@ private:
         return ts_score + ucb_bonus + diversity_bonus + time_bonus;
     }
 
-    // 创建创新组合
+    // Create an innovative combination
     std::string createInnovativeCombination() {
         AlgorithmCombination combo;
 
-        // 使用自适应选择器
+        // Use adaptive selector
         if (algorithm_selector_) {
-            size_t algo_count = 2 + (rng_() % 2);  // 2-3个算法
+            size_t algo_count = 2 + (rng_() % 2);  // 2-3 algorithms
             combo.algorithm_names = algorithm_selector_->selectAlgorithms(algo_count);
             combo.combination_mode = algorithm_selector_->getRecommendedMode();
         } else {
-            // 默认组合
+            // Default combination
             combo.algorithm_names = {"havoc", "bitflip"};
             combo.combination_mode = "sequential";
         }
 
         std::string combo_key = combo.toString();
 
-        // 注册新组合
+        // Register new combination
         {
             std::unique_lock<std::shared_mutex> lock(data_mutex_);
             if (distributions_.find(combo_key) == distributions_.end()) {
@@ -608,11 +608,11 @@ private:
         return combo_key;
     }
 
-    // 解析组合字符串
+    // Parse combination string
     AlgorithmCombination parseCombinationString(const std::string& combo_str) {
         AlgorithmCombination combo;
 
-        // 格式: "mode[algo1,algo2,...]"
+        // Format: "mode[algo1,algo2,...]"
         size_t bracket_pos = combo_str.find('[');
         if (bracket_pos != std::string::npos) {
             combo.combination_mode = combo_str.substr(0, bracket_pos);
@@ -638,17 +638,17 @@ private:
         return combo;
     }
 
-    // 计算更新权重
+    // Calculate update weight
     double calculateUpdateWeight(double reward, const CombinationStats& stats) {
-        // 基础权重
+        // Base weight
         double weight = reward;
 
-        // 新组合获得更高权重
+        // Give higher weight to new combinations
         if (stats.total_uses < 10) {
             weight *= 2.0;
         }
 
-        // 后期阶段调整
+        // Late-stage adjustment
         if (isLateStage()) {
             weight *= 1.5;
         }
@@ -656,28 +656,28 @@ private:
         return std::min(1.0, weight);
     }
 
-    // 自适应调整探索参数
+    // Adaptively adjust exploration parameters
     void adaptExplorationParameters() {
-        // 衰减探索率 - 提高最低探索率阈值
+        // Decay exploration rate - raise minimum exploration threshold
         if (total_selections_.load() % 1000 == 0) {
             double current = exploration_rate_.load();
             exploration_rate_.store(std::max(0.15, current * decay_factor_.load()));  // 0.05 -> 0.15
         }
 
-        // 根据多样性调整UCB参数
+        // Adjust UCB parameter based on diversity
         double diversity = diversity_tracker_.getDiversityScore();
         if (diversity < 0.3) {
-            ucb_c_.store(std::min(8.0, ucb_c_.load() * 1.15));  // 5.0 -> 8.0, 更强探索
+            ucb_c_.store(std::min(8.0, ucb_c_.load() * 1.15));  // 5.0 -> 8.0, stronger exploration
         } else if (diversity > 0.7) {
-            ucb_c_.store(std::max(2.0, ucb_c_.load() * 0.95));  // 1.0 -> 2.0, 保持最低探索
+            ucb_c_.store(std::max(2.0, ucb_c_.load() * 0.95));  // 1.0 -> 2.0, keep minimum exploration
         }
     }
 
-    // 判断是否后期阶段
+    // Determine whether we are in late stage
     bool isLateStage() const {
         if (!late_stage_optimizer_) return false;
 
-        // 获取覆盖率信息
+        // Get coverage info
         double coverage_pct = 0.0;
         if (context_) {
             auto cov_info = context_->getCoverageInfo();
@@ -690,13 +690,13 @@ private:
         return late_stage_optimizer_->isLateStage(stats);
     }
 
-    // 检查是否需要重置
+    // Check whether reset is needed
     bool shouldResetBandits() const {
         if (cycles_since_reset_.load() < reset_threshold_.load()) {
             return false;
         }
 
-        // 多样性过低
+        // Diversity too low
         if (diversity_tracker_.getDiversityScore() < 0.2) {
             return true;
         }
@@ -704,13 +704,13 @@ private:
         return false;
     }
 
-    // 执行部分重置
+    // Perform partial reset
     void performPartialReset() {
         std::cout << "[UnifiedThompson] Performing partial reset to prevent convergence\n";
 
         std::unique_lock<std::shared_mutex> lock(data_mutex_);
 
-        // 获取所有组合的性能排序
+        // Rank all combinations by performance
         std::vector<std::pair<std::string, double>> rankings;
         for (const auto& [combo, stats] : statistics_) {
             rankings.emplace_back(combo, stats.getAverageReward());
@@ -719,18 +719,18 @@ private:
         std::sort(rankings.begin(), rankings.end(),
             [](const auto& a, const auto& b) { return a.second > b.second; });
 
-        // 保留前20%的组合，重置其余
+        // Keep top 20% combinations, reset the rest
         size_t keep_count = std::max(size_t(5), rankings.size() / 5);
 
         for (size_t i = keep_count; i < rankings.size(); ++i) {
             const std::string& combo = rankings[i].first;
 
-            // 部分重置Beta分布
+            // Partially reset Beta distributions
             if (distributions_.find(combo) != distributions_.end()) {
                 distributions_[combo]->reset(2.0, 1.0);
             }
 
-            // 部分重置统计
+            // Partially reset statistics
             statistics_[combo].total_uses /= 2;
             statistics_[combo].successes /= 2;
         }
@@ -740,7 +740,7 @@ private:
         exploration_booster_.activate(5000, 2.0);
     }
 
-    // 结束当前批次
+    // End current batch
     void endCurrentBatch() {
         auto batch_info = batch_manager_.getCurrentBatch();
         if (batch_info.executions == 0) return;
@@ -751,19 +751,19 @@ private:
                   << batch_info.getAverageReward() << "\n";
     }
 
-    // 获取性能分数
+    // Get performance score
     double getPerformanceScore(const std::string& combo) const {
         std::shared_lock<std::shared_mutex> lock(data_mutex_);
 
         auto it = statistics_.find(combo);
         if (it == statistics_.end()) {
-            return 0.5;  // 默认中等性能
+            return 0.5;  // Default: medium performance
         }
 
         return it->second.getAverageReward();
     }
 
-    // 获取全局平均奖励
+    // Get global average reward
     double getGlobalAverageReward() const {
         double total_reward = 0.0;
         size_t total_uses = 0;

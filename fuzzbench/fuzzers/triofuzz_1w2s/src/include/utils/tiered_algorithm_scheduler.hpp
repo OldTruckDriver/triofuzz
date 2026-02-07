@@ -15,12 +15,12 @@
 namespace triofuzz {
 
 /**
- * @brief 算法性能层级
+ * @brief Algorithm performance tiers
  *
- * 根据开销将算法分为三个层级：
- * - Tier 1 (极速): < 0.5ms, 高频使用 (70%概率)
- * - Tier 2 (快速): 0.5-1.0ms, 中频使用 (25%概率)
- * - Tier 3 (中等): 1.0-2.0ms, 低频使用 (5%概率)
+ * Algorithms are divided into three tiers based on overhead:
+ * - Tier 1 (ultra fast): < 0.5ms, frequent use (70% probability)
+ * - Tier 2 (fast): 0.5-1.0ms, medium frequency (25% probability)
+ * - Tier 3 (medium): 1.0-2.0ms, low frequency (5% probability)
  */
 enum class AlgorithmTier {
     TIER_1_ULTRA_FAST = 1,  // < 0.5ms
@@ -29,101 +29,101 @@ enum class AlgorithmTier {
 };
 
 /**
- * @brief 算法性能元数据
+ * @brief Algorithm performance metadata
  */
 struct AlgorithmPerformanceProfile {
     std::string name;
     AlgorithmTier tier;
     double avg_execution_time_ms;
-    double coverage_gain_rate;      // 平均覆盖率增益
-    double mutation_diversity;      // 变异多样性 [0-1]
+    double coverage_gain_rate;      // Average coverage gain rate
+    double mutation_diversity;      // Mutation diversity [0-1]
 
-    // 使用统计
+    // Usage statistics
     size_t total_executions = 0;
-    size_t successful_executions = 0;  // 发现新覆盖
+    size_t successful_executions = 0;  // Found new coverage
     double cumulative_reward = 0.0;
 
-    // 计算性价比 (reward per millisecond)
+    // Compute cost-effectiveness (reward per millisecond)
     double getCostEffectiveness() const {
         if (avg_execution_time_ms <= 0) return 0.0;
         return coverage_gain_rate / avg_execution_time_ms;
     }
 
-    // 计算成功率
+    // Compute success rate
     double getSuccessRate() const {
-        if (total_executions == 0) return 0.5; // 先验概率
+        if (total_executions == 0) return 0.5; // Prior
         return static_cast<double>(successful_executions) / total_executions;
     }
 };
 
 /**
- * @brief 分层概率调度器
+ * @brief Tiered probabilistic scheduler
  *
- * 策略：
- * 1. Tier 1算法: 70%概率, 几乎每次执行
- * 2. Tier 2算法: 25%概率, 适度执行
- * 3. Tier 3算法: 5%概率, 稀疏执行但用于探索
+ * Strategy:
+ * 1. Tier 1 algorithms: 70% probability, run almost every time
+ * 2. Tier 2 algorithms: 25% probability, run moderately often
+ * 3. Tier 3 algorithms: 5% probability, sparse but useful for exploration
  *
- * 动态调整：
- * - 根据实时性能调整各tier的基础概率
- * - 算法内部根据成功率再次分配 (UCB1)
- * - 考虑多样性避免过度exploitation
+ * Dynamic adjustments:
+ * - Adjust each tier's base probability based on runtime performance
+ * - Within each tier, select algorithms using UCB1 based on success rate
+ * - Consider diversity to avoid excessive exploitation
  */
 class TieredAlgorithmScheduler {
 private:
-    // 算法性能档案
+    // Algorithm performance profiles
     std::map<std::string, AlgorithmPerformanceProfile> profiles_;
 
-    // 分层列表
+    // Tier lists
     std::vector<std::string> tier1_algorithms_;
     std::vector<std::string> tier2_algorithms_;
     std::vector<std::string> tier3_algorithms_;
 
-    // 基础概率分配（恢复最优配置，redqueen移至Tier2增强结构化格式支持）
+    // Base probability split (restored best-known config; move redqueen to Tier 2 for better structured-format support)
     double tier1_base_probability_ = 0.73;
     double tier2_base_probability_ = 0.25;
     double tier3_base_probability_ = 0.02;
 
-    // 性能阈值 (毫秒)
+    // Performance thresholds (ms)
     double tier1_threshold_ms_ = 0.5;
     double tier2_threshold_ms_ = 1.0;
     double tier3_threshold_ms_ = 2.0;
 
-    // 自适应参数
-    double adaptation_rate_ = 0.01;     // 学习率
-    double ucb_exploration_c_ = 1.414;  // UCB探索系数
-    double diversity_bonus_ = 0.1;      // 多样性奖励
-    size_t warmup_executions_ = 100;    // 预热次数
-    size_t update_interval_ = 100;      // 更新间隔
+    // Adaptation parameters
+    double adaptation_rate_ = 0.01;     // Learning rate
+    double ucb_exploration_c_ = 1.414;  // UCB exploration coefficient
+    double diversity_bonus_ = 0.1;      // Diversity bonus
+    size_t warmup_executions_ = 100;    // Warmup executions
+    size_t update_interval_ = 100;      // Update interval
 
-    // 全局统计
+    // Global statistics
     size_t total_executions_ = 0;
     double avg_execution_time_ms_ = 0.0;
-    double target_execution_time_ms_ = 0.8;  // 目标平均执行时间
+    double target_execution_time_ms_ = 0.8;  // Target average execution time
 
-    // 速度预算参数
-    double speed_budget_threshold_ = 1.5;  // 超过目标的倍数触发预算模式
-    bool speed_budget_mode_ = false;       // 是否处于速度预算模式
-    size_t consecutive_slow_updates_ = 0;  // 连续慢速更新次数
-    size_t speed_budget_trigger_count_ = 3; // 触发速度预算模式的阈值
+    // Speed budget parameters
+    double speed_budget_threshold_ = 1.5;  // Enter budget mode when exceeding target by this factor
+    bool speed_budget_mode_ = false;       // Whether speed budget mode is active
+    size_t consecutive_slow_updates_ = 0;  // Consecutive slow updates
+    size_t speed_budget_trigger_count_ = 3; // Threshold to enter speed budget mode
 
-    // 覆盖率增长追踪（用于动态调整exploration）
+    // Coverage growth tracking (used to adjust exploration dynamically)
     double last_coverage_growth_rate_ = 1.0;
     size_t executions_since_last_coverage_ = 0;
 
-    // 随机数生成器
+    // Random number generator
     std::mt19937 rng_;
 
-    // Round-robin索引 (预热阶段使用)
+    // Round-robin indices (used during warmup)
     std::map<int, size_t> round_robin_indices_;
 
-    // 线程安全：保护profiles_/tier列表/统计的并发访问
+    // Thread safety: protects profiles_/tier lists/stats during concurrent access
     mutable std::recursive_mutex mutex_;
 
 public:
     TieredAlgorithmScheduler() : rng_(std::random_device{}()) {}
 
-    // 动态设置各层基础概率（需保证三者相加≤1，内部不强制归一）
+    // Set base probabilities for tiers (ensure sum <= 1; no forced normalization internally)
     void setTierBaseProbabilities(double p1, double p2, double p3) {
         std::lock_guard<std::recursive_mutex> lock(mutex_);
         tier1_base_probability_ = std::clamp(p1, 0.0, 1.0);
@@ -132,13 +132,13 @@ public:
     }
 
     /**
-     * @brief 注册算法及其性能档案
+     * @brief Register an algorithm and its performance profile
      */
     void registerAlgorithm(const AlgorithmPerformanceProfile& profile) {
         std::lock_guard<std::recursive_mutex> lock(mutex_);
         profiles_[profile.name] = profile;
 
-        // 分配到相应层级
+        // Assign to the corresponding tier
         switch (profile.tier) {
             case AlgorithmTier::TIER_1_ULTRA_FAST:
                 tier1_algorithms_.push_back(profile.name);
@@ -153,15 +153,15 @@ public:
     }
 
     /**
-     * @brief 选择下一个要执行的算法
+     * @brief Select the next algorithm to execute
      *
-     * 使用两阶段选择：
-     * 1. 先根据tier概率选择层级
-     * 2. 在层级内根据UCB1选择具体算法
+     * Two-stage selection:
+     * 1. Select a tier based on tier probabilities
+     * 2. Select an algorithm within that tier using UCB1
      */
     std::string selectAlgorithm() {
         std::lock_guard<std::recursive_mutex> lock(mutex_);
-        // 阶段1: 选择tier
+        // Stage 1: select tier
         double rand_val = std::uniform_real_distribution<double>(0.0, 1.0)(rng_);
 
         std::vector<std::string>* selected_tier = nullptr;
@@ -178,7 +178,7 @@ public:
             tier_id = 3;
         }
 
-        // Fallback到其他tier
+        // Fallback to another tier
         if (selected_tier->empty()) {
             if (!tier1_algorithms_.empty()) {
                 selected_tier = &tier1_algorithms_;
@@ -194,39 +194,39 @@ public:
             }
         }
 
-        // 阶段2: 在tier内使用UCB1选择
+        // Stage 2: select within the tier using UCB1
         return selectFromTier(*selected_tier, tier_id);
     }
 
     /**
-     * @brief 批量选择多个算法 (用于组合)
+     * @brief Select multiple algorithms (for combinations)
      *
-     * @param count 需要选择的算法数量
-     * @param ensure_diversity 是否确保多样性
-     * @return 选中的算法列表
+     * @param count Number of algorithms to select
+     * @param ensure_diversity Whether to ensure diversity
+     * @return Selected algorithm list
      */
     std::vector<std::string> selectAlgorithms(size_t count, bool ensure_diversity = true) {
         std::lock_guard<std::recursive_mutex> lock(mutex_);
         std::vector<std::string> selected;
         std::set<std::string> selected_set;
 
-        // 检查是否有任何算法可用
+        // Check that at least one algorithm is available
         if (tier1_algorithms_.empty() && tier2_algorithms_.empty() && tier3_algorithms_.empty()) {
             throw std::runtime_error("No algorithms registered in any tier");
         }
 
-        // 确保至少包含一个Tier 1算法（如果Tier 1非空）
+        // Ensure at least one Tier 1 algorithm (if Tier 1 is non-empty)
         if (count > 0 && !tier1_algorithms_.empty()) {
             std::string algo = selectFromTier(tier1_algorithms_, 1);
             selected.push_back(algo);
             selected_set.insert(algo);
         }
 
-        // 选择剩余算法
+        // Select remaining algorithms
         for (size_t i = selected.size(); i < count; ++i) {
             std::string algo = selectAlgorithm();
 
-            // 如果需要多样性，避免重复
+            // If diversity is required, avoid duplicates
             if (ensure_diversity) {
                 int attempts = 0;
                 while (selected_set.count(algo) > 0 && attempts < 10) {
@@ -243,12 +243,12 @@ public:
     }
 
     /**
-     * @brief 更新算法性能
+     * @brief Update algorithm performance
      *
-     * @param algorithm_name 算法名称
-     * @param execution_time_ms 执行时间
-     * @param found_new_coverage 是否发现新覆盖
-     * @param reward 奖励值 [0-1]
+     * @param algorithm_name Algorithm name
+     * @param execution_time_ms Execution time
+     * @param found_new_coverage Whether new coverage was found
+     * @param reward Reward value [0-1]
      */
     void updatePerformance(const std::string& algorithm_name,
                           double execution_time_ms,
@@ -260,28 +260,28 @@ public:
 
         auto& profile = it->second;
 
-        // 更新统计
+        // Update statistics
         profile.total_executions++;
         if (found_new_coverage) {
             profile.successful_executions++;
         }
         profile.cumulative_reward += reward;
 
-        // 更新平均执行时间 (exponential moving average)
+        // Update average execution time (exponential moving average)
         double alpha = 0.1;
         profile.avg_execution_time_ms =
             alpha * execution_time_ms + (1 - alpha) * profile.avg_execution_time_ms;
 
-        // 更新覆盖率增益率
+        // Update coverage gain rate
         profile.coverage_gain_rate = profile.getSuccessRate();
 
-        // 全局统计
+        // Global statistics
         total_executions_++;
         avg_execution_time_ms_ =
             (avg_execution_time_ms_ * (total_executions_ - 1) + execution_time_ms)
             / total_executions_;
 
-        // 追踪覆盖率增长
+        // Track coverage growth
         if (found_new_coverage) {
             double growth_rate = 1.0 / (executions_since_last_coverage_ + 1);
             last_coverage_growth_rate_ = 0.9 * last_coverage_growth_rate_ + 0.1 * growth_rate;
@@ -290,44 +290,44 @@ public:
             executions_since_last_coverage_++;
         }
 
-        // 自适应调整tier概率
+        // Adapt tier probabilities
         if (total_executions_ > warmup_executions_ && total_executions_ % update_interval_ == 0) {
             adaptTierProbabilities();
 
-            // 动态调整exploration参数
+            // Dynamically adjust exploration parameter
             adjustExplorationParameter();
         }
 
-        // 动态重分配tier (如果性能显著变化)
+        // Dynamically reclassify tier (if performance changes significantly)
         if (profile.total_executions >= 50 && profile.total_executions % 50 == 0) {
             reclassifyAlgorithmIfNeeded(algorithm_name);
         }
     }
 
     /**
-     * @brief 动态调整exploration参数，防止过早收敛
+     * @brief Dynamically adjust exploration to avoid premature convergence
      */
     void adjustExplorationParameter() {
         std::lock_guard<std::recursive_mutex> lock(mutex_);
-        // 如果执行很多次但没有新覆盖，增加exploration
+        // If we run many times without new coverage, increase exploration
         if (total_executions_ > 1000000) {
             double coverage_stagnation = static_cast<double>(executions_since_last_coverage_) / 1000.0;
 
             if (coverage_stagnation > 100.0) {
-                // 长时间无新覆盖，大幅增加exploration
+                // Long time without new coverage: increase exploration significantly
                 ucb_exploration_c_ = std::min(3.0, ucb_exploration_c_ * 1.2);
             } else if (coverage_stagnation > 50.0) {
-                // 中等停滞，适度增加exploration
+                // Moderate stagnation: increase exploration moderately
                 ucb_exploration_c_ = std::min(2.5, ucb_exploration_c_ * 1.1);
             } else if (coverage_stagnation < 10.0 && ucb_exploration_c_ > 1.414) {
-                // 覆盖率增长良好，可以降低exploration
+                // Good coverage growth: exploration can be reduced
                 ucb_exploration_c_ = std::max(1.414, ucb_exploration_c_ * 0.95);
             }
         }
     }
 
     /**
-     * @brief 获取算法性能档案
+     * @brief Get algorithm performance profile
      */
     const AlgorithmPerformanceProfile& getProfile(const std::string& algorithm_name) const {
         std::lock_guard<std::recursive_mutex> lock(mutex_);
@@ -335,7 +335,7 @@ public:
     }
 
     /**
-     * @brief 获取所有算法按性价比排序
+     * @brief Get all algorithms sorted by cost-effectiveness
      */
     std::vector<std::string> getAlgorithmsByEffectiveness() const {
         std::lock_guard<std::recursive_mutex> lock(mutex_);
@@ -357,7 +357,7 @@ public:
     }
 
     /**
-     * @brief 获取统计报告
+     * @brief Get statistics report
      */
     std::string getStatisticsReport() const {
         std::lock_guard<std::recursive_mutex> lock(mutex_);
@@ -385,7 +385,7 @@ public:
     }
 
     /**
-     * @brief 设置目标执行时间
+     * @brief Set target execution time
      */
     void setTargetExecutionTime(double target_ms) {
         std::lock_guard<std::recursive_mutex> lock(mutex_);
@@ -393,7 +393,7 @@ public:
     }
 
     /**
-     * @brief 获取当前tier概率
+     * @brief Get current tier probabilities
      */
     std::tuple<double, double, double> getTierProbabilities() const {
         std::lock_guard<std::recursive_mutex> lock(mutex_);
@@ -401,7 +401,7 @@ public:
     }
 
     /**
-     * @brief 检查是否有已注册的算法
+     * @brief Check whether any algorithms are registered
      */
     bool hasAlgorithms() const {
         std::lock_guard<std::recursive_mutex> lock(mutex_);
@@ -409,7 +409,7 @@ public:
     }
 
     /**
-     * @brief 获取总执行次数
+     * @brief Get total executions
      */
     size_t getTotalExecutions() const {
         std::lock_guard<std::recursive_mutex> lock(mutex_);
@@ -418,25 +418,25 @@ public:
 
 private:
     /**
-     * @brief 在tier内使用UCB1选择算法
+     * @brief Select algorithm within a tier using UCB1
      */
     std::string selectFromTier(const std::vector<std::string>& tier_algorithms, int tier_id) {
         if (tier_algorithms.empty()) {
             throw std::runtime_error("Cannot select from empty tier");
         }
 
-        // 如果只有一个算法，直接返回
+        // If there is only one algorithm, return it directly
         if (tier_algorithms.size() == 1) {
             return tier_algorithms[0];
         }
 
-        // 计算该tier的总执行次数
+        // Compute total executions for this tier
         double total_tier_executions = 0;
         for (const auto& algo : tier_algorithms) {
             total_tier_executions += profiles_[algo].total_executions;
         }
 
-        // 预热阶段：轮询选择
+        // Warmup phase: round-robin selection
         if (total_tier_executions < warmup_executions_) {
             size_t& idx = round_robin_indices_[tier_id];
             std::string selected = tier_algorithms[idx % tier_algorithms.size()];
@@ -444,36 +444,36 @@ private:
             return selected;
         }
 
-        // UCB1选择 - 考虑效率(reward/time)
+        // UCB1 selection - consider efficiency (reward/time)
         double best_ucb = -1.0;
         std::string best_algo;
 
         for (const auto& algo : tier_algorithms) {
             const auto& profile = profiles_[algo];
 
-            // Exploitation: 效率 = 成功率 / 执行时间
-            // 这样可以平衡reward和速度
+            // Exploitation: efficiency = success rate / execution time
+            // This balances reward and speed.
             double success_rate = profile.getSuccessRate();
-            double time_normalized = std::max(0.1, profile.avg_execution_time_ms); // 避免除0
+            double time_normalized = std::max(0.1, profile.avg_execution_time_ms); // Avoid division by zero
             double efficiency = success_rate / time_normalized;
 
-            // 归一化efficiency到[0,1]范围
-            double exploitation = std::min(1.0, efficiency * 0.5); // 0.5是缩放因子
+            // Normalize efficiency into [0, 1]
+            double exploitation = std::min(1.0, efficiency * 0.5); // 0.5 is a scaling factor
 
-            // Exploration: UCB项
+            // Exploration: UCB term
             double exploration = 0.0;
             if (profile.total_executions > 0) {
                 exploration = ucb_exploration_c_ * std::sqrt(
                     std::log(total_tier_executions + 1) / profile.total_executions
                 );
             } else {
-                exploration = 10.0; // 未执行过的算法优先
+                exploration = 10.0; // Prefer never-executed algorithms
             }
 
-            // Diversity: 多样性奖励
+            // Diversity: diversity bonus
             double diversity = diversity_bonus_ * profile.mutation_diversity;
 
-            // 速度预算模式下，更重视效率
+            // In speed budget mode, emphasize efficiency more
             double efficiency_weight = speed_budget_mode_ ? 1.5 : 1.0;
 
             double ucb_score = exploitation * efficiency_weight + exploration + diversity;
@@ -488,63 +488,63 @@ private:
     }
 
     /**
-     * @brief 自适应调整tier概率
+     * @brief Adapt tier probabilities
      *
-     * 策略：
-     * - 如果平均执行时间超过目标，提高Tier 1概率
-     * - 如果有余裕，提高Tier 2/3概率增加探索
-     * - 实现速度预算机制：持续慢速时强制切换到快速模式
+     * Strategy:
+     * - If average execution time exceeds the target, increase Tier 1 probability.
+     * - If there is slack, increase Tier 2/3 probability to explore more.
+     * - Speed budget mechanism: when persistently slow, force a fast mode.
      */
     void adaptTierProbabilities() {
-        // 计算执行时间偏差
+        // Compute execution-time ratio
         double time_ratio = avg_execution_time_ms_ / target_execution_time_ms_;
 
-        // === 速度预算机制 ===
+        // === Speed budget mechanism ===
         if (time_ratio > speed_budget_threshold_) {
             consecutive_slow_updates_++;
 
-            // 如果连续多次超速，进入速度预算模式
+            // If we exceed the budget repeatedly, enter speed budget mode
             if (consecutive_slow_updates_ >= speed_budget_trigger_count_) {
                 speed_budget_mode_ = true;
-                // 强制使用快速算法 (80% Tier 1, 15% Tier 2, 5% Tier 3)
+                // Force fast algorithms (80% Tier 1, 15% Tier 2, 5% Tier 3)
                 tier1_base_probability_ = 0.80;
                 tier2_base_probability_ = 0.15;
-                tier3_base_probability_ = 0.02;  // 降低Tier 3从5%到2%
-                return; // 直接返回，跳过正常调整
+                tier3_base_probability_ = 0.02;  // Reduce Tier 3 from 5% to 2%
+                return; // Return early; skip normal adjustment
             }
         } else {
             consecutive_slow_updates_ = 0;
 
-            // 如果速度恢复正常，退出速度预算模式
+            // If speed returns to normal, exit speed budget mode
             if (speed_budget_mode_ && time_ratio < 1.0) {
                 speed_budget_mode_ = false;
             }
         }
 
-        // === 正常自适应调整 ===
+        // === Normal adaptive adjustment ===
         if (speed_budget_mode_) {
-            // 速度预算模式下，逐步恢复
+            // In speed budget mode, recover gradually
             if (time_ratio < 1.0) {
                 tier1_base_probability_ = std::max(0.70, tier1_base_probability_ - adaptation_rate_);
                 tier2_base_probability_ = std::min(0.25, tier2_base_probability_ + adaptation_rate_ * 0.5);
-                tier3_base_probability_ = std::min(0.02, tier3_base_probability_ + adaptation_rate_ * 0.3);  // 保持低频
+                tier3_base_probability_ = std::min(0.02, tier3_base_probability_ + adaptation_rate_ * 0.3);  // Keep low frequency
             }
         } else {
-            // 正常模式
+            // Normal mode
             if (time_ratio > 1.2) {
-                // 太慢，增加Tier 1权重
+                // Too slow: increase Tier 1 weight
                 tier1_base_probability_ = std::min(0.85, tier1_base_probability_ + adaptation_rate_);
                 tier2_base_probability_ = std::max(0.10, tier2_base_probability_ - adaptation_rate_ * 0.5);
-                tier3_base_probability_ = std::max(0.02, tier3_base_probability_ - adaptation_rate_ * 0.5);  // 从0.05降到0.02
+                tier3_base_probability_ = std::max(0.02, tier3_base_probability_ - adaptation_rate_ * 0.5);  // Reduce from 0.05 to 0.02
             } else if (time_ratio < 0.8) {
-                // 有余裕，可以增加探索
+                // Plenty of slack: increase exploration
                 tier1_base_probability_ = std::max(0.50, tier1_base_probability_ - adaptation_rate_);
                 tier2_base_probability_ = std::min(0.35, tier2_base_probability_ + adaptation_rate_ * 0.5);
-                tier3_base_probability_ = std::min(0.10, tier3_base_probability_ + adaptation_rate_ * 0.5);  // 限制最高到10%
+                tier3_base_probability_ = std::min(0.10, tier3_base_probability_ + adaptation_rate_ * 0.5);  // Cap at 10%
             }
         }
 
-        // 归一化
+        // Normalize
         double sum = tier1_base_probability_ + tier2_base_probability_ + tier3_base_probability_;
         tier1_base_probability_ /= sum;
         tier2_base_probability_ /= sum;
@@ -552,7 +552,7 @@ private:
     }
 
     /**
-     * @brief 根据实际性能重新分类算法
+     * @brief Reclassify algorithm based on actual performance
      */
     void reclassifyAlgorithmIfNeeded(const std::string& algorithm_name) {
         auto it = profiles_.find(algorithm_name);
@@ -569,13 +569,13 @@ private:
         } else if (profile.avg_execution_time_ms < tier3_threshold_ms_) {
             new_tier = AlgorithmTier::TIER_3_MEDIUM;
         } else {
-            // 超过阈值，但不移除，只是保持在Tier 3
+            // Exceeds threshold; keep in Tier 3 (do not remove).
             return;
         }
 
-        // 如果tier变化，重新分配
+        // If tier changes, reassign
         if (new_tier != profile.tier) {
-            // 检查旧tier是否会变空（保护机制：每个tier至少保留1个算法）
+            // Check whether the old tier would become empty (safety: keep at least one algorithm per tier)
             size_t old_tier_size = 0;
             switch (profile.tier) {
                 case AlgorithmTier::TIER_1_ULTRA_FAST:
@@ -589,15 +589,15 @@ private:
                     break;
             }
 
-            // 如果移除会导致tier变空，则不执行重分类
+            // If removal would empty the tier, skip reclassification
             if (old_tier_size <= 1) {
                 return;
             }
 
-            // 从旧tier移除
+            // Remove from old tier
             removeFromTier(algorithm_name, profile.tier);
 
-            // 添加到新tier
+            // Add to new tier
             profile.tier = new_tier;
             switch (new_tier) {
                 case AlgorithmTier::TIER_1_ULTRA_FAST:
@@ -638,7 +638,7 @@ private:
 };
 
 /**
- * @brief 预定义算法档案 - 根据实际测试调整
+ * @brief Predefined algorithm profiles - tuned based on empirical tests
  */
 namespace TieredProfiles {
 

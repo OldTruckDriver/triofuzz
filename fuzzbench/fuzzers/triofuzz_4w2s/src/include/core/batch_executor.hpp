@@ -13,14 +13,14 @@
 
 namespace triofuzz {
 
-// 批处理执行框架 - 提升吞吐量
+// Batch execution framework - improves throughput
 class BatchExecutor {
 public:
     static constexpr size_t DEFAULT_BATCH_SIZE = 128;
     static constexpr size_t MAX_BATCH_SIZE = 1024;
     static constexpr size_t PREFETCH_DISTANCE = 4;
 
-    // 执行状态枚举
+    // Execution status enum
     enum class ExecutionStatus {
         SUCCESS,
         CRASHED,
@@ -28,7 +28,7 @@ public:
         ERROR
     };
 
-    // 执行结果定义
+    // Execution result definition
     struct ExecutionResult {
         std::vector<uint8_t> input_data;
         CoverageInfo coverage;
@@ -37,7 +37,7 @@ public:
         std::string error_message;
     };
 
-    // 批次执行结果
+    // Batch execution result
     struct BatchResult {
         std::vector<ExecutionResult> results;
         std::bitset<MAX_BATCH_SIZE> has_new_coverage;
@@ -45,7 +45,7 @@ public:
         size_t crash_count = 0;
         double total_exec_time = 0.0;
 
-        // 统计信息
+        // Statistics
         double avg_exec_time() const {
             return results.empty() ? 0.0 : total_exec_time / results.size();
         }
@@ -56,7 +56,7 @@ public:
         }
     };
 
-    // 批次配置
+    // Batch configuration
     struct BatchConfig {
         size_t batch_size;
         bool enable_parallel;
@@ -76,18 +76,18 @@ private:
     BatchConfig config_;
     LockFreeCoverageCollector& coverage_collector_;
 
-    // 执行器函数类型
+    // Executor function type
     using Executor = std::function<ExecutionResult(const std::vector<uint8_t>&)>;
     Executor target_executor_;
 
-    // 线程池
+    // Thread pool
     std::vector<std::thread> workers_;
     std::queue<std::function<void()>> tasks_;
     std::mutex queue_mutex_;
     std::condition_variable cv_;
     std::atomic<bool> stop_{false};
 
-    // 性能统计
+    // Performance stats
     struct BatchStats {
         std::atomic<uint64_t> total_executions{0};
         std::atomic<uint64_t> total_batches{0};
@@ -97,7 +97,7 @@ private:
     };
     BatchStats stats_;
 
-    // 内存池，避免频繁分配
+    // Memory pool to avoid frequent allocations
     struct MemoryPool {
         std::vector<std::vector<uint8_t>> buffers;
         std::mutex mutex;
@@ -124,28 +124,28 @@ public:
     explicit BatchExecutor(const BatchConfig& config = BatchConfig());
     ~BatchExecutor();
 
-    // 设置目标执行器
+    // Set target executor
     void setTargetExecutor(Executor executor) {
         target_executor_ = std::move(executor);
     }
 
-    // 批量执行输入
+    // Execute inputs in batch
     BatchResult executeBatch(const std::vector<std::vector<uint8_t>>& inputs);
 
-    // 异步批量执行
+    // Async batch execution
     std::future<BatchResult> executeBatchAsync(const std::vector<std::vector<uint8_t>>& inputs);
 
-    // 执行变异批次
+    // Execute a mutation batch
     template<typename MutationAlgorithm>
     BatchResult executeMutationBatch(
         const std::vector<Seed>& seeds,
         MutationAlgorithm& mutation_algo,
         SharedContext& context);
 
-    // 并行管道执行
+    // Parallel pipeline execution
     class Pipeline {
     public:
-        // 阶段定义
+        // Stage definition
         enum Stage {
             MUTATION,
             EXECUTION,
@@ -177,57 +177,57 @@ public:
         Pipeline();
         ~Pipeline();
 
-        // 添加处理阶段
+        // Add processing stage
         void addStage(Stage stage, std::function<void(void*)> processor);
 
-        // 运行管道
+        // Run pipeline
         void run();
 
-        // 停止管道
+        // Stop pipeline
         void stop();
 
-        // 提交数据到管道
+        // Submit data to pipeline
         void submit(void* data);
 
-        // 获取结果
+        // Get result
         void* getResult();
     };
 
-    // 创建优化的执行管道
+    // Create optimized execution pipeline
     std::unique_ptr<Pipeline> createOptimizedPipeline();
 
-    // 自适应批次大小调整
+    // Adaptive batch size adjustment
     void adjustBatchSize(double coverage_rate, double exec_time);
 
-    // 获取性能报告
+    // Get performance report
     std::string getPerformanceReport() const;
 
-    // 重置统计
+    // Reset stats
     void resetStats();
 
 private:
-    // 工作线程函数
+    // Worker thread function
     void workerThread();
 
-    // 执行单个输入（内部使用）
+    // Execute a single input (internal)
     ExecutionResult executeOne(const std::vector<uint8_t>& input);
 
-    // 预取数据到缓存
+    // Prefetch data into cache
     void prefetchData(const std::vector<uint8_t>& data);
 
-    // SIMD优化的批量变异
+    // SIMD-optimized batch mutation
     std::vector<std::vector<uint8_t>> vectorizedMutation(
         const std::vector<std::vector<uint8_t>>& inputs);
 
-    // 并行执行辅助函数
+    // Helper for parallel execution
     std::vector<ExecutionResult> parallelExecute(
         const std::vector<std::vector<uint8_t>>& inputs);
 
-    // 批量覆盖率分析
+    // Batch coverage analysis
     void batchCoverageAnalysis(BatchResult& batch_result);
 };
 
-// 模板实现
+// Template implementation
 template<typename MutationAlgorithm>
 BatchExecutor::BatchResult BatchExecutor::executeMutationBatch(
     const std::vector<Seed>& seeds,
@@ -237,20 +237,20 @@ BatchExecutor::BatchResult BatchExecutor::executeMutationBatch(
     std::vector<std::vector<uint8_t>> mutated_inputs;
     mutated_inputs.reserve(config_.batch_size);
 
-    // 批量生成变异输入
+    // Generate mutated inputs in batch
     for (size_t i = 0; i < config_.batch_size && i < seeds.size(); i++) {
-        // 预取下一个种子数据
+        // Prefetch next seed data
         if (config_.enable_prefetch && i + PREFETCH_DISTANCE < seeds.size()) {
             prefetchData(seeds[i + PREFETCH_DISTANCE].data);
         }
 
-        // 应用变异
+        // Apply mutation
         std::vector<uint8_t> mutation_input = seeds[i].data;
         auto mutated = mutation_algo.execute(mutation_input, context);
         mutated_inputs.push_back(std::move(mutated));
     }
 
-    // 批量执行
+    // Execute batch
     return executeBatch(mutated_inputs);
 }
 

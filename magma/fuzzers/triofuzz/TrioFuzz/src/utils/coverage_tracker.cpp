@@ -14,8 +14,8 @@
 #include <pthread.h> // For pthread_sigmask
 #include <unistd.h> // For getpid()
 
-// LLVM运行时函数声明 - 用于强制写入profile数据
-// 使用弱符号，如果不可用则返回NULL
+// LLVM runtime function declaration - used to force profile data to be written.
+// Uses a weak symbol; if unavailable it will be null.
 extern "C" {
     int __llvm_profile_write_file(void) __attribute__((weak));
 }
@@ -23,7 +23,7 @@ extern "C" {
 namespace triofuzz {
 
 CoverageTracker::CoverageTracker(const Config& config) : config_(config) {
-    // 确保输出目录存在
+    // Ensure output directory exists
     std::filesystem::create_directories(config_.output_dir);
 
     // Generate unique profraw name if enabled
@@ -58,7 +58,7 @@ void CoverageTracker::start() {
     is_running_ = true;
     coverage_records_.clear();
 
-    // 设置 LLVM_PROFILE_FILE 环境变量
+    // Set LLVM_PROFILE_FILE environment variable
     // Use unique name if configured, otherwise use the pattern
     std::string profraw_name = config_.use_unique_profraw_name ? unique_profraw_name_ : config_.profraw_pattern;
     std::string profile_file = config_.output_dir + "/" + profraw_name;
@@ -67,11 +67,11 @@ void CoverageTracker::start() {
         return;
     }
 
-    // 启动定时记录线程
+    // Start periodic recording thread
     recording_active_ = true;
     recording_thread_ = std::thread(&CoverageTracker::recordingLoop, this);
 
-    // 立即创建CSV文件头部，即使没有数据
+    // Create the CSV header immediately, even if there is no data yet.
     // Check if CSV already exists (for crash recovery - append mode)
     bool csv_exists = std::filesystem::exists(getDataFilePath());
     if (!csv_exists) {
@@ -103,13 +103,13 @@ void CoverageTracker::stop() {
     recording_active_ = false;
     recording_cv_.notify_all();
     
-    // 等待记录线程结束
+    // Wait for recording thread to finish
     if (recording_thread_.joinable()) {
         std::cout << "[CoverageTracker] Waiting for recording thread to finish..." << std::endl;
         recording_thread_.join();
     }
     
-    // 记录最终的覆盖率数据
+    // Record final coverage data
     std::cout << "[CoverageTracker] Recording final coverage data..." << std::endl;
     recordCurrentCoverage();
     
@@ -129,7 +129,7 @@ void CoverageTracker::recordCurrentCoverage() {
         
         auto current_time = std::chrono::system_clock::now();
         
-        // 强制写入LLVM profile数据到磁盘
+        // Force LLVM profile data to be written to disk
         if (__llvm_profile_write_file != nullptr) {
             if (__llvm_profile_write_file() != 0) {
                 std::cout << "[CoverageTracker] Warning: Failed to force write profile data" << std::endl;
@@ -140,10 +140,10 @@ void CoverageTracker::recordCurrentCoverage() {
             std::cout << "[CoverageTracker] LLVM profile write function not available, relying on automatic writes" << std::endl;
         }
         
-        // 添加短暂延迟确保文件系统写入完成
+        // Add a short delay to ensure filesystem writes complete
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-        // 合并 profraw 文件
+        // Merge profraw files
         // Use mergeAllProfrawFiles if crash recovery mode is enabled
         bool merge_success = false;
         if (config_.merge_all_profraw) {
@@ -154,16 +154,16 @@ void CoverageTracker::recordCurrentCoverage() {
 
         if (!merge_success) {
             std::cerr << "[CoverageTracker] Failed to merge profraw files" << std::endl;
-            // 仍然更新last_record_time_以避免无限循环
+            // Still update last_record_time_ to avoid an infinite loop
             last_record_time_ = current_time;
             return;
         }
         
-        // 提取覆盖率数据
+        // Extract coverage data
         data = extractCoverageData();
         if (data.regions == 0 && data.functions == 0 && data.lines == 0) {
             std::cout << "[CoverageTracker] Warning: No coverage data extracted (profraw files may be empty or not yet written)" << std::endl;
-            // 不直接返回，而是记录一个空数据点，这样可以看到时间进展
+            // Do not return early; record an empty data point so time progress is visible.
             data.experiment_name = config_.experiment_name;
             data.time_started = start_time_;
             data.time_ended = current_time;
@@ -184,20 +184,20 @@ void CoverageTracker::recordCurrentCoverage() {
                   << std::endl;
         
         std::cout << "[CoverageTracker] DEBUG: About to call exportToCSV, records count: " << coverage_records_.size() << std::endl;
-        std::cout.flush(); // 强制刷新输出缓冲区
-    } // 释放互斥锁
+        std::cout.flush(); // Force flush stdout buffer
+    } // Release mutex
     
-    // 在CSV写入过程中暂时屏蔽信号
+    // Temporarily block signals during CSV writing
     sigset_t old_mask, new_mask;
     sigemptyset(&new_mask);
     sigaddset(&new_mask, SIGINT);
     sigaddset(&new_mask, SIGTERM);
     pthread_sigmask(SIG_BLOCK, &new_mask, &old_mask);
     
-    // 立即保存CSV文件（每次记录后都保存）
+    // Save the CSV immediately (after each record)
     csv_success = exportToCSV();
     
-    // 恢复信号处理
+    // Restore signal mask
     pthread_sigmask(SIG_SETMASK, &old_mask, nullptr);
     
     if (!csv_success) {
@@ -206,7 +206,7 @@ void CoverageTracker::recordCurrentCoverage() {
         std::cout << "[CoverageTracker] DEBUG: exportToCSV completed successfully" << std::endl;
     }
     
-    // 强制同步文件系统
+    // Force filesystem sync
     std::system("sync");
     std::cout << "[CoverageTracker] DEBUG: File system sync completed" << std::endl;
 }
@@ -224,11 +224,11 @@ std::string CoverageTracker::getProfdataPath() const {
 }
 
 bool CoverageTracker::mergeProfrawFiles() {
-    // 构建 llvm-profdata merge 命令
+    // Build llvm-profdata merge command
     std::string profraw_path = getProfrawPath();
     std::string profdata_path = getProfdataPath();
     
-    // 首先检查是否有profraw文件
+    // First check whether any profraw files exist
     std::string check_command = "ls " + profraw_path + " 2>/dev/null | wc -l";
     FILE* check_pipe = popen(check_command.c_str(), "r");
     if (!check_pipe) {
@@ -246,7 +246,7 @@ bool CoverageTracker::mergeProfrawFiles() {
         return false;
     }
     
-    // 检查profraw文件是否不为空
+    // Check that profraw files are non-empty
     std::string size_check = "find " + config_.output_dir + " -name '*.profraw' -size +0c | wc -l";
     FILE* size_pipe = popen(size_check.c_str(), "r");
     if (size_pipe) {
@@ -267,10 +267,10 @@ bool CoverageTracker::mergeProfrawFiles() {
     
     std::string command = "llvm-profdata merge -sparse " + profraw_path + " -o " + profdata_path + " 2>&1";
     
-    // 执行命令并捕获输出
+    // Execute command and capture output
     FILE* cmd_pipe = popen(command.c_str(), "r");
     if (!cmd_pipe) {
-        // 尝试备用命令路径
+        // Try fallback command path
         command = "/usr/bin/llvm-profdata merge -sparse " + profraw_path + " -o " + profdata_path + " 2>&1";
         cmd_pipe = popen(command.c_str(), "r");
         
@@ -280,7 +280,7 @@ bool CoverageTracker::mergeProfrawFiles() {
         }
     }
     
-    // 读取命令输出
+    // Read command output
     std::string output;
     char buffer[256];
     while (fgets(buffer, sizeof(buffer), cmd_pipe) != nullptr) {
@@ -295,7 +295,7 @@ bool CoverageTracker::mergeProfrawFiles() {
         return false;
     }
     
-    // 验证输出文件是否创建成功
+    // Verify output file was created
     if (!std::filesystem::exists(profdata_path)) {
         std::cerr << "[CoverageTracker] Failed to create profdata file: " << profdata_path << std::endl;
         return false;
@@ -397,11 +397,11 @@ LLVMCoverageData CoverageTracker::extractCoverageData() {
     data.time_started = start_time_;
     data.time_ended = std::chrono::system_clock::now();
     
-    // 计算时间间隔（秒）
+    // Compute time interval (seconds)
     auto duration = std::chrono::duration_cast<std::chrono::seconds>(data.time_ended - data.time_started);
     data.time_seconds = static_cast<double>(duration.count());
     
-    // 构建 llvm-cov report 命令
+    // Build llvm-cov report command
     std::string profdata_path = getProfdataPath();
     std::string target_binary = config_.target_binary;
     
@@ -412,10 +412,10 @@ LLVMCoverageData CoverageTracker::extractCoverageData() {
     
     std::string command = "llvm-cov report " + target_binary + " -instr-profile=" + profdata_path + " 2>/dev/null";
     
-    // 执行命令并捕获输出
+    // Execute command and capture output
     std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(command.c_str(), "r"), pclose);
     if (!pipe) {
-        // 尝试备用命令路径
+        // Try fallback command path
         command = "/usr/bin/llvm-cov report " + target_binary + " -instr-profile=" + profdata_path + " 2>/dev/null";
         pipe = std::unique_ptr<FILE, decltype(&pclose)>(popen(command.c_str(), "r"), pclose);
         
@@ -425,20 +425,20 @@ LLVMCoverageData CoverageTracker::extractCoverageData() {
         }
     }
     
-    // 读取命令输出
+    // Read command output
     std::string output;
     char buffer[256];
     while (fgets(buffer, sizeof(buffer), pipe.get()) != nullptr) {
         output += buffer;
     }
     
-    // 添加调试输出
+    // Add debug output
     std::cout << "[CoverageTracker] DEBUG: llvm-cov command output:" << std::endl;
     std::cout << "--- OUTPUT START ---" << std::endl;
     std::cout << output << std::endl;
     std::cout << "--- OUTPUT END ---" << std::endl;
     
-    // 解析输出
+    // Parse output
     return parseLLVMCovOutput(output);
 }
 
@@ -448,7 +448,7 @@ LLVMCoverageData CoverageTracker::parseLLVMCovOutput(const std::string& output) 
     data.time_started = start_time_;
     data.time_ended = std::chrono::system_clock::now();
     
-    // 计算时间间隔（秒）
+    // Compute time interval (seconds)
     auto duration = std::chrono::duration_cast<std::chrono::seconds>(data.time_ended - data.time_started);
     data.time_seconds = static_cast<double>(duration.count());
     
@@ -456,35 +456,35 @@ LLVMCoverageData CoverageTracker::parseLLVMCovOutput(const std::string& output) 
     std::string line;
     bool found_total = false;
     
-    // 查找 TOTAL 行，它包含汇总的覆盖率信息
-    // 格式通常类似：TOTAL    123    45    63.41%    89    12    86.52%    234    67    71.37%    456    123    73.03%
+    // Look for the TOTAL line containing summary coverage info.
+    // Format usually looks like: TOTAL    123    45    63.41%    89    12    86.52%    234    67    71.37%    456    123    73.03%
     while (std::getline(stream, line)) {
         if (line.find("TOTAL") != std::string::npos) {
             found_total = true;
             
-            // 使用正则表达式解析TOTAL行
-            // 期望格式：TOTAL regions missed_regions region_cover% functions missed_functions function_cover% lines missed_lines line_cover% branches missed_branches branch_cover%
+            // Parse TOTAL line with a regex.
+            // Expected format: TOTAL regions missed_regions region_cover% functions missed_functions function_cover% lines missed_lines line_cover% branches missed_branches branch_cover%
             std::regex total_regex(R"(TOTAL\s+(\d+)\s+(\d+)\s+([\d.]+)%\s+(\d+)\s+(\d+)\s+([\d.]+)%\s+(\d+)\s+(\d+)\s+([\d.]+)%(?:\s+(\d+)\s+(\d+)\s+([\d.]+)%)?)", 
                                  std::regex_constants::icase);
             std::smatch match;
             
             if (std::regex_search(line, match, total_regex)) {
-                // Regions (第1-3个匹配组)
+                // Regions (match groups 1-3)
                 data.regions = std::stoull(match[1].str());
                 data.missed_regions = std::stoull(match[2].str());
                 data.region_cover = std::stod(match[3].str());
                 
-                // Functions (第4-6个匹配组)
+                // Functions (match groups 4-6)
                 data.functions = std::stoull(match[4].str());
                 data.missed_functions = std::stoull(match[5].str());
                 data.function_executed = std::stod(match[6].str());
                 
-                // Lines (第7-9个匹配组)
+                // Lines (match groups 7-9)
                 data.lines = std::stoull(match[7].str());
                 data.missed_lines = std::stoull(match[8].str());
                 data.line_cover = std::stod(match[9].str());
                 
-                // Branches (第10-12个匹配组，可选)
+                // Branches (match groups 10-12, optional)
                 if (match[10].matched) {
                     data.branches = std::stoull(match[10].str());
                     data.missed_branches = std::stoull(match[11].str());
@@ -493,7 +493,7 @@ LLVMCoverageData CoverageTracker::parseLLVMCovOutput(const std::string& output) 
                 
                 break;
             } else {
-                // 尝试简化的解析方式
+                // Try a simplified parsing approach
                 std::istringstream line_stream(line);
                 std::string token;
                 std::vector<std::string> tokens;
@@ -502,12 +502,12 @@ LLVMCoverageData CoverageTracker::parseLLVMCovOutput(const std::string& output) 
                     tokens.push_back(token);
                 }
                 
-                // 至少需要10个token才能包含基本的region、function、line信息
+                // Need at least 10 tokens to include basic region/function/line info
                 if (tokens.size() >= 10) {
                     try {
                         data.regions = std::stoull(tokens[1]);
                         data.missed_regions = std::stoull(tokens[2]);
-                        data.region_cover = std::stod(tokens[3].substr(0, tokens[3].length() - 1)); // 移除%号
+                        data.region_cover = std::stod(tokens[3].substr(0, tokens[3].length() - 1)); // Strip '%'
                         
                         data.functions = std::stoull(tokens[4]);
                         data.missed_functions = std::stoull(tokens[5]);
@@ -517,7 +517,7 @@ LLVMCoverageData CoverageTracker::parseLLVMCovOutput(const std::string& output) 
                         data.missed_lines = std::stoull(tokens[8]);
                         data.line_cover = std::stod(tokens[9].substr(0, tokens[9].length() - 1));
                         
-                        // 如果有分支信息
+                        // If branch info is present
                         if (tokens.size() >= 13) {
                             data.branches = std::stoull(tokens[10]);
                             data.missed_branches = std::stoull(tokens[11]);
@@ -536,7 +536,7 @@ LLVMCoverageData CoverageTracker::parseLLVMCovOutput(const std::string& output) 
         std::cout << "[CoverageTracker] Could not find TOTAL line in llvm-cov output" << std::endl;
         std::cout << "[CoverageTracker] DEBUG: Trying to parse each line individually..." << std::endl;
         
-        // 尝试从最后几行中找到汇总数据
+        // Try to find summary data in the last few lines
         std::istringstream stream2(output);
         std::string line2;
         std::vector<std::string> all_lines;
@@ -544,17 +544,17 @@ LLVMCoverageData CoverageTracker::parseLLVMCovOutput(const std::string& output) 
             all_lines.push_back(line2);
         }
         
-        // 检查最后几行是否包含汇总信息
+        // Check whether the last few lines contain summary info
         for (int i = std::max(0, (int)all_lines.size() - 5); i < (int)all_lines.size(); ++i) {
             std::cout << "[CoverageTracker] Line " << i << ": '" << all_lines[i] << "'" << std::endl;
             
-            // 检查是否包含数字和百分号
+            // Check whether it contains digits and percent signs
             if (all_lines[i].find('%') != std::string::npos && 
                 all_lines[i].find_first_of("0123456789") != std::string::npos) {
                 
                 std::cout << "[CoverageTracker] Attempting to parse line: " << all_lines[i] << std::endl;
                 
-                // 尝试简单的token解析
+                // Try simple token parsing
                 std::istringstream line_stream(all_lines[i]);
                 std::string token;
                 std::vector<std::string> tokens;
@@ -570,7 +570,7 @@ LLVMCoverageData CoverageTracker::parseLLVMCovOutput(const std::string& output) 
                     }
                     
                     try {
-                        // 尝试解析数据
+                        // Try to parse data
                         data.regions = std::stoull(tokens[1]);
                         data.missed_regions = std::stoull(tokens[2]);
                         data.region_cover = std::stod(tokens[3].substr(0, tokens[3].length() - 1));
@@ -616,7 +616,7 @@ void CoverageTracker::createCSVHeader() {
         return;
     }
     
-    // 写入CSV头部
+    // Write CSV header
     file << "experiment_name,time_started,time_ended,regions,missed_regions,region_cover,"
          << "functions,missed_functions,function_executed,lines,missed_lines,line_cover,"
          << "branches,missed_branches,branch_cover,time_seconds,time_interval\n";
@@ -634,16 +634,16 @@ bool CoverageTracker::exportToCSV() {
     
     std::string file_path = getDataFilePath();
     
-    // 直接以追加模式打开文件（文件应该已经存在且有header）
+    // Open file in append mode (file should already exist and have a header)
     std::ofstream file(file_path, std::ios::app);
     if (!file.is_open()) {
         return false;
     }
     
-    // 只写入最新的记录（最后一个）
+    // Only write the latest record (the last one)
     const auto& record = coverage_records_.back();
     
-    // 快速时间格式化
+    // Fast time formatting
     auto start_time_t = std::chrono::system_clock::to_time_t(record.time_started);
     auto end_time_t = std::chrono::system_clock::to_time_t(record.time_ended);
     
@@ -651,7 +651,7 @@ bool CoverageTracker::exportToCSV() {
     std::strftime(start_time_str, sizeof(start_time_str), "%Y-%m-%d %H:%M:%S", std::localtime(&start_time_t));
     std::strftime(end_time_str, sizeof(end_time_str), "%Y-%m-%d %H:%M:%S", std::localtime(&end_time_t));
     
-    // 一次性写入整行
+    // Write the whole line in one go
     file << record.experiment_name << ","
          << start_time_str << ","
          << end_time_str << ","
@@ -671,7 +671,7 @@ bool CoverageTracker::exportToCSV() {
          // Keep minutes for backward compatibility in consumers.
          << std::fixed << std::setprecision(1) << (record.time_seconds / 60.0) << "\n";
     
-    // 立即强制写入
+    // Flush immediately
     file.flush();
     file.close();
     
@@ -689,7 +689,7 @@ void CoverageTracker::recordingLoop() {
             break;
         }
         
-        // 等待记录间隔（秒）
+        // Wait for recording interval (seconds)
         std::chrono::system_clock::time_point wait_until;
         {
             std::lock_guard<std::mutex> lock(data_mutex_);
@@ -710,7 +710,7 @@ void CoverageTracker::recordingLoop() {
             std::cout << "[CoverageTracker] DEBUG: Woke up from sleep" << std::endl;
         }
         
-        // 检查是否仍然活跃
+        // Check whether still active
         if (!recording_active_ || should_stop) {
             std::cout << "[CoverageTracker] DEBUG: Recording no longer active, breaking loop" << std::endl;
             break;
@@ -719,7 +719,7 @@ void CoverageTracker::recordingLoop() {
         std::cout << "[CoverageTracker] DEBUG: About to record current coverage..." << std::endl;
         
         try {
-            // 记录当前覆盖率
+            // Record current coverage
             recordCurrentCoverage();
             std::cout << "[CoverageTracker] DEBUG: Successfully recorded coverage" << std::endl;
         } catch (const std::exception& e) {

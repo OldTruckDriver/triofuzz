@@ -2,30 +2,30 @@
 #include "../../include/algorithms/mutation/structure_aware_mutation.hpp"
 #include "../../include/combination/multi_armed_bandit.hpp"
 
-// 基础变异算法头文件
+// Basic mutation algorithm headers
 #include "../../include/algorithms/mutation/runtime_dictionary_mutation.hpp"
 #include "../../include/algorithms/mutation/smart_dictionary_mutation.hpp"
 #include "../../include/algorithms/mutation/format_overflow_mutation.hpp"
 
-// AFL++ 37个独立mutation算子 (用于与AFL++ TS Parallel公平对比)
+// AFL++ 37 individual mutation operators (for a fair comparison with AFL++ TS Parallel)
 #include "../../include/algorithms/mutation/aflpp_individual_mutations.hpp"
 
-// 声明AFL++独立mutation注册函数
+// Declare AFL++ individual mutation registration function
 namespace triofuzz {
     void registerAFLPPIndividualMutations();
 }
 
-// 现有算法头文件
+// Existing algorithm headers
 #include "../../include/algorithms/mutation/redqueen_mutation.hpp"
 #include "../../include/algorithms/mutation/cmplog_mutation.hpp"
 
-// 插桩算法头文件（仅保留活跃使用的）
+// Instrumentation algorithm headers (only actively used ones)
 #include "../../include/algorithms/instrumentation/cmplog_instrumentation.hpp"
 
-// 调度器算法头文件（仅保留活跃使用的）
+// Scheduler algorithm headers (only actively used ones)
 #include "../../include/algorithms/scheduling/rare_edge_scheduler.hpp"
 
-// 优化算法头文件
+// Optimization algorithm headers
 #include "../../include/algorithms/optimization/optimization_algorithms.hpp"
 
 #include <algorithm>
@@ -33,7 +33,7 @@ namespace triofuzz {
 
 namespace triofuzz {
 
-// 静态实例
+// Static instance
 AlgorithmRegistry* AlgorithmRegistry::instance_ = nullptr;
 
 std::shared_ptr<AlgorithmBase> AlgorithmRegistry::createAlgorithm(const std::string& name) const {
@@ -110,11 +110,11 @@ bool AlgorithmRegistry::areCompatible(const std::string& alg1, const std::string
         return it2->second;
     }
     
-    // 默认兼容性检查
+    // Default compatibility check
     auto config1 = getConfig(alg1);
     auto config2 = getConfig(alg2);
     
-    // 检查不兼容列表
+    // Check incompatibility lists
     if (std::find(config1.incompatible_with.begin(), config1.incompatible_with.end(), alg2) != config1.incompatible_with.end()) {
         return false;
     }
@@ -122,15 +122,15 @@ bool AlgorithmRegistry::areCompatible(const std::string& alg1, const std::string
         return false;
     }
     
-    // 检查信息依赖
+    // Check information dependencies
     for (const auto& required : config1.required_info) {
         if (std::find(config2.provided_info.begin(), config2.provided_info.end(), required) == config2.provided_info.end()) {
-            // 如果alg1需要的信息alg2不能提供，检查是否有其他冲突
+            // If alg2 cannot provide what alg1 requires, continue (other conflicts may exist).
             continue;
         }
     }
     
-    return true; // 默认兼容
+    return true; // Compatible by default
 }
 
 std::vector<std::string> AlgorithmRegistry::getIncompatibleAlgorithms(const std::string& algorithm_name) const {
@@ -171,7 +171,7 @@ std::vector<std::string> AlgorithmRegistry::recommendAlgorithms(
     for (const auto& [name, config] : configs_) {
         if (!config.enabled) continue;
         
-        // 检查是否满足需求信息
+        // Check whether required info can be provided
         bool can_provide_required = false;
         for (const auto& provided : config.provided_info) {
             if (std::find(required_info.begin(), required_info.end(), provided) != required_info.end()) {
@@ -180,7 +180,7 @@ std::vector<std::string> AlgorithmRegistry::recommendAlgorithms(
             }
         }
         
-        // 检查是否有足够的输入信息
+        // Check whether enough input info is available
         bool has_enough_input = true;
         for (const auto& required : config.required_info) {
             if (std::find(available_info.begin(), available_info.end(), required) == available_info.end()) {
@@ -209,7 +209,7 @@ void AlgorithmRegistry::initializeBuiltinAlgorithms() {
         registerAlgorithm<RedqueenMutation>("redqueen", config);
     }
 
-    // 结构感知变异
+    // Structure-aware mutation
     {
         AlgorithmConfig config;
         config.name = "Structure-Aware Mutation";
@@ -223,7 +223,7 @@ void AlgorithmRegistry::initializeBuiltinAlgorithms() {
         registerAlgorithm<StructureAwareMutation>("structure_aware", config);
     }
 
-    // UCB多臂老虎机算法
+    // UCB multi-armed bandit algorithm
     {
         AlgorithmConfig config;
         config.name = "UCB Bandit";
@@ -236,7 +236,7 @@ void AlgorithmRegistry::initializeBuiltinAlgorithms() {
         registerAlgorithm<UCBBandit>("ucb_bandit", config);
     }
     
-    // Epsilon-Greedy算法 (新增)
+    // Epsilon-Greedy algorithm (new)
     {
         AlgorithmConfig config;
         config.name = "Epsilon-Greedy Bandit";
@@ -250,7 +250,7 @@ void AlgorithmRegistry::initializeBuiltinAlgorithms() {
         registerAlgorithm<EpsilonGreedyBandit>("epsilon_greedy", config);
     }
     
-    // Contextual UCB算法 (新增)
+    // Contextual UCB algorithm (new)
     {
         AlgorithmConfig config;
         config.name = "Contextual UCB";
@@ -264,18 +264,18 @@ void AlgorithmRegistry::initializeBuiltinAlgorithms() {
         registerAlgorithm<ContextualUCB>("contextual_ucb", config);
     }
     
-    // 注册现有算法
+    // Register existing algorithms
     registerExistingAlgorithms();
 
-    // 注册所有缺失的算法（修复硬编码问题）
+    // Register all missing algorithms (fix hard-coded inconsistencies)
     registerMissingAlgorithms();
 
-    // 注册AFL++ 37个独立mutation算子（用于与AFL++ TS Parallel公平对比）
+    // Register AFL++ 37 individual mutation operators (for a fair comparison with AFL++ TS Parallel)
     registerAFLPPIndividualMutations();
 }
 
 void AlgorithmRegistry::registerExistingAlgorithms() {
-    // 注册现有的算法实现
+    // Register existing algorithm implementations
 
     {
         AlgorithmConfig config;
@@ -302,7 +302,7 @@ void AlgorithmRegistry::registerExistingAlgorithms() {
 }
 
 void AlgorithmRegistry::updateCompatibilityMatrix(const std::string& name, const AlgorithmConfig& config) {
-    // 更新兼容性矩阵
+    // Update compatibility matrix
     for (const auto& compatible : config.compatible_with) {
         compatibility_matrix_[{name, compatible}] = true;
         compatibility_matrix_[{compatible, name}] = true;
@@ -318,13 +318,13 @@ std::vector<std::string> AlgorithmRegistry::topologicalSort(const std::vector<st
     std::map<std::string, std::vector<std::string>> adj;
     std::map<std::string, int> in_degree;
     
-    // 初始化
+    // Initialize
     for (const auto& alg : algorithms) {
         adj[alg] = {};
         in_degree[alg] = 0;
     }
     
-    // 构建图
+    // Build graph
     for (const auto& alg : algorithms) {
         auto config = getConfig(alg);
         for (const auto& dep : config.dependencies) {
@@ -335,7 +335,7 @@ std::vector<std::string> AlgorithmRegistry::topologicalSort(const std::vector<st
         }
     }
     
-    // 拓扑排序
+    // Topological sort
     std::queue<std::string> queue;
     for (const auto& [alg, degree] : in_degree) {
         if (degree == 0) {
@@ -364,9 +364,9 @@ std::vector<std::string> AlgorithmRegistry::topologicalSort(const std::vector<st
     return result;
 }
 
-// 注册所有缺失的算法（修复硬编码问题）
+// Register all missing algorithms (fix hard-coded inconsistencies)
 void AlgorithmRegistry::registerMissingAlgorithms() {
-    // 1. 注册缺失的变异算法（只注册真实存在的类）
+    // 1. Register missing mutation algorithms (only those with real implementations)
 
     {
         AlgorithmConfig config;
@@ -417,13 +417,13 @@ void AlgorithmRegistry::registerMissingAlgorithms() {
         registerAlgorithm<CmplogInstrumentation>("cmplog_instrumentation", config);
     }
 
-    // 添加常用的算法别名
+    // Add commonly used algorithm aliases
     addAlias("cmplog_mutation", "cmplog");
 
     std::cout << "[INFO] Registered all missing algorithms and aliases successfully" << std::endl;
 }
 
-// 算法工厂函数实现
+// Algorithm factory function implementations
 namespace algorithm_factory {
 
 std::shared_ptr<AlgorithmBase> createStructureAwareMutation() {
@@ -432,9 +432,9 @@ std::shared_ptr<AlgorithmBase> createStructureAwareMutation() {
 
 } // namespace algorithm_factory
 
-// 别名管理实现
+// Alias management implementation
 void AlgorithmRegistry::addAlias(const std::string& alias, const std::string& canonical_name) {
-    // 检查canonical_name是否存在
+    // Ensure canonical_name exists
     if (factories_.find(canonical_name) == factories_.end()) {
         throw std::runtime_error("Cannot add alias '" + alias + "' for non-existent algorithm '" + canonical_name + "'");
     }
@@ -450,7 +450,7 @@ std::string AlgorithmRegistry::resolveAlias(const std::string& name) const {
     if (it != algorithm_aliases_.end()) {
         return it->second;
     }
-    return name; // 如果不是别名，返回原始名称
+    return name; // If it's not an alias, return the original name
 }
 
 std::vector<std::string> AlgorithmRegistry::getAliases(const std::string& canonical_name) const {

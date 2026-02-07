@@ -10,7 +10,7 @@
 namespace triofuzz {
 
 REDQUEENMutation::REDQUEENMutation() {
-    // 初始化默认配置
+    // Initialize default configuration
     config_.enable_string_extraction = true;
     config_.enable_numeric_extraction = true;
     config_.enable_automatic_patching = true;
@@ -18,7 +18,7 @@ REDQUEENMutation::REDQUEENMutation() {
     config_.min_confidence_threshold = 0.7;
     config_.max_patch_size = 64;
     
-    // 创建执行跟踪器
+    // Create execution tracer
     tracer_ = TracerFactory::createBestAvailableTracer();
     if (tracer_) {
         tracer_->initialize();
@@ -27,20 +27,20 @@ REDQUEENMutation::REDQUEENMutation() {
 }
 
 MutationOutput REDQUEENMutation::execute(const MutationInput& input, SharedContext& ctx) {
-    MutationOutput output = input;  // 直接复制输入数据
+    MutationOutput output = input;  // Copy input data directly
     
     if (!tracer_) {
-        // 如果没有跟踪器，回退到简单变异
+        // If no tracer is available, fall back to simple mutation
         return fallbackMutation(input, ctx);
     }
     
-    // 获取目标程序信息
+    // Get target program information
     auto target_info = ctx.getTargetInfo();
     if (target_info.has_value()) {
         tracer_->setTarget(target_info->target_path, target_info->args);
     }
     
-    // 第一阶段：执行程序并收集比较指令信息
+    // Phase 1: execute and collect comparison-instruction information
     bool trace_success = tracer_->executeWithTracing(input, std::chrono::milliseconds(5000));
     stats_.total_colorings++;
     
@@ -49,14 +49,14 @@ MutationOutput REDQUEENMutation::execute(const MutationInput& input, SharedConte
         return fallbackMutation(input, ctx);
     }
     
-    // 获取比较指令记录
+    // Get comparison-instruction records
     const auto& comparisons = tracer_->getComparisons();
     if (comparisons.empty()) {
         tracer_->clearTraceData();
         return fallbackMutation(input, ctx);
     }
     
-    // 第二阶段：执行coloring分析
+    // Phase 2: perform coloring analysis
     ColoringResult coloring = performAdvancedColoring(input, comparisons, ctx);
     
     if (!coloring.has_new_mappings && coloring.entries.empty()) {
@@ -64,21 +64,21 @@ MutationOutput REDQUEENMutation::execute(const MutationInput& input, SharedConte
         return fallbackMutation(input, ctx);
     }
     
-    // 第三阶段：提取输入到状态的映射
+    // Phase 3: extract input-to-state mappings
     std::vector<InputToStateMapping> mappings = extractMappings(coloring);
     if (!mappings.empty()) {
         stats_.successful_mappings++;
         updateColoringDatabase(coloring);
     }
     
-    // 第四阶段：应用智能补丁
+    // Phase 4: apply smart patches
     if (!mappings.empty()) {
         output = applyInputPatches(input, mappings);
         if (output != input) {
             stats_.patches_applied++;
         }
     } else {
-        // 使用基于实际比较指令的魔法字节变异
+        // Use magic-byte mutation based on actual comparison instructions
         output = applyMagicBytesMutation(input, comparisons);
     }
     
@@ -92,7 +92,7 @@ ColoringResult REDQUEENMutation::performAdvancedColoring(const std::vector<uint8
     ColoringResult result;
     result.has_new_mappings = false;
     
-    // 基于真实的比较指令记录进行coloring分析
+    // Coloring analysis based on real comparison-instruction traces
     for (const auto& cmp : comparisons) {
         if (!cmp.is_input_dependent || cmp.taint_offsets.empty()) {
             continue;
@@ -105,11 +105,11 @@ ColoringResult REDQUEENMutation::performAdvancedColoring(const std::vector<uint8
         entry.is_string_compare = (cmp.type == triofuzz::ComparisonType::STRING_EQ || 
                                   cmp.type == triofuzz::ComparisonType::STRING_CMP);
         
-        // 映射输入字节到比较操作数
+        // Map input bytes to comparison operands
         entry.input_bytes = cmp.operand1;
         entry.cmp_bytes = cmp.operand2;
         
-        // 检查是否为新的映射
+        // Check whether this is a new mapping
         bool is_new_mapping = true;
         for (const auto& existing : coloring_database_) {
             if (existing.address == entry.address && 
@@ -139,7 +139,7 @@ MutationOutput REDQUEENMutation::applyMagicBytesMutation(const MutationInput& in
         return output;
     }
     
-    // 选择一个有趣的比较指令
+    // Select an interesting comparison instruction
     std::uniform_int_distribution<size_t> cmp_dist(0, comparisons.size() - 1);
     const auto& selected_cmp = comparisons[cmp_dist(random_gen_)];
     
@@ -147,11 +147,11 @@ MutationOutput REDQUEENMutation::applyMagicBytesMutation(const MutationInput& in
         return output;
     }
     
-    // 尝试应用魔法字节
+    // Try applying magic bytes
     for (size_t taint_offset : selected_cmp.taint_offsets) {
         if (taint_offset >= output.size()) continue;
         
-        // 策略1：直接替换为目标操作数
+        // Strategy 1: replace directly with the target operand
         if (!selected_cmp.operand2.empty() && 
             taint_offset + selected_cmp.operand2.size() <= output.size()) {
             
@@ -161,7 +161,7 @@ MutationOutput REDQUEENMutation::applyMagicBytesMutation(const MutationInput& in
             break;
         }
         
-        // 策略2：基于比较类型的智能变异
+        // Strategy 2: type-aware mutation based on comparison type
         switch (selected_cmp.type) {
             case triofuzz::ComparisonType::INT8_EQ:
             case triofuzz::ComparisonType::INT8_NE:
@@ -191,7 +191,7 @@ MutationOutput REDQUEENMutation::applyMagicBytesMutation(const MutationInput& in
                 
             case triofuzz::ComparisonType::STRING_EQ:
             case triofuzz::ComparisonType::STRING_CMP:
-                // 字符串比较的特殊处理
+                // Special handling for string comparisons
                 if (!selected_cmp.operand2.empty()) {
                     size_t copy_len = std::min(selected_cmp.operand2.size(), 
                                               output.size() - taint_offset);
@@ -202,7 +202,7 @@ MutationOutput REDQUEENMutation::applyMagicBytesMutation(const MutationInput& in
                 break;
                 
             default:
-                // 对于其他类型，尝试直接替换
+                // For other types, try direct replacement
                 if (!selected_cmp.operand2.empty() && taint_offset < output.size()) {
                     output[taint_offset] = selected_cmp.operand2[0];
                 }
@@ -210,7 +210,7 @@ MutationOutput REDQUEENMutation::applyMagicBytesMutation(const MutationInput& in
         }
         
         stats_.magic_bytes_found++;
-        break;  // 只应用一个魔法字节
+        break;  // Only apply a single magic byte
     }
     
     return output;
@@ -286,7 +286,7 @@ MutationOutput REDQUEENMutation::fallbackMutation(const MutationInput& input, Sh
         }
     }
     
-    // 简单的随机变异作为回退策略
+    // Simple random mutation as a fallback strategy
     std::uniform_int_distribution<size_t> pos_dist(0, output.size() - 1);
     std::uniform_int_distribution<int> mutation_type(0, 3);
     
@@ -294,25 +294,25 @@ MutationOutput REDQUEENMutation::fallbackMutation(const MutationInput& input, Sh
     
     switch (mutation_type(random_gen_)) {
         case 0: {
-            // 位翻转
+            // Bit flip
             std::uniform_int_distribution<int> bit_dist(0, 7);
             int bit = bit_dist(random_gen_);
             output[pos] ^= (1 << bit);
             break;
         }
         case 1: {
-            // 字节翻转
+            // Byte flip
             output[pos] ^= 0xFF;
             break;
         }
         case 2: {
-            // 随机字节
+            // Random byte
             std::uniform_int_distribution<uint8_t> byte_dist(0, 255);
             output[pos] = byte_dist(random_gen_);
             break;
         }
         case 3: {
-            // 算术变异
+            // Arithmetic mutation
             std::uniform_int_distribution<int> delta_dist(-16, 16);
             int delta = delta_dist(random_gen_);
             output[pos] = static_cast<uint8_t>(
@@ -328,16 +328,16 @@ ColoringResult REDQUEENMutation::performColoring(const std::vector<uint8_t>& inp
     ColoringResult result;
     result.has_new_mappings = false;
     
-    // 为每个可能的offset执行bit flipping
+    // Perform bit flipping for each possible offset
     for (size_t offset = 0; offset < input.size() && offset < config_.max_coloring_attempts; ++offset) {
         for (size_t bit = 0; bit < 8; ++bit) {
             std::vector<uint8_t> flipped_input = flipInputBits(input, offset, 1);
             flipped_input[offset] ^= (1 << bit);
             
-            if (checkStateChange(input, flipped_input, ctx)) {
-                ColoringEntry entry;
-                entry.address = 0; // 需要从执行跟踪中获取
-                entry.context = offset;
+                if (checkStateChange(input, flipped_input, ctx)) {
+                    ColoringEntry entry;
+                    entry.address = 0; // Should be obtained from execution trace
+                    entry.context = offset;
                 entry.input_bytes = {input[offset]};
                 entry.cmp_bytes = {flipped_input[offset]};
                 entry.hit_count = 1;
@@ -349,7 +349,7 @@ ColoringResult REDQUEENMutation::performColoring(const std::vector<uint8_t>& inp
         }
     }
     
-    // 构建地址到条目的映射
+    // Build mapping from address to entries
     for (size_t i = 0; i < result.entries.size(); ++i) {
         result.address_to_entries[result.entries[i].address].push_back(i);
     }
@@ -362,7 +362,7 @@ std::vector<InputToStateMapping> REDQUEENMutation::extractMappings(const Colorin
     
     for (const auto& entry : coloring.entries) {
         InputToStateMapping mapping;
-        mapping.input_offset = entry.context; // 简化：使用context作为offset
+        mapping.input_offset = entry.context; // Simplified: use context as offset
         mapping.length = entry.input_bytes.size();
         mapping.state_address = entry.address;
         mapping.target_value = entry.cmp_bytes;
@@ -378,19 +378,19 @@ std::vector<InputToStateMapping> REDQUEENMutation::extractMappings(const Colorin
 
 MutationOutput REDQUEENMutation::applyInputPatches(const MutationInput& input, 
                                                   const std::vector<InputToStateMapping>& mappings) {
-    MutationOutput output = input;  // 直接复制输入数据
+    MutationOutput output = input;  // Copy input data directly
     
-    // 按置信度排序映射
+    // Sort mappings by confidence
     auto sorted_mappings = mappings;
     std::sort(sorted_mappings.begin(), sorted_mappings.end(),
               [](const InputToStateMapping& a, const InputToStateMapping& b) {
                   return a.confidence > b.confidence;
               });
     
-    // 应用最有信心的映射
+    // Apply the most confident mapping
     for (const auto& mapping : sorted_mappings) {
         if (applyAutomaticPatch(output, mapping)) {
-            break; // 只应用一个补丁
+            break; // Only apply one patch
         }
     }
     
@@ -401,7 +401,7 @@ std::vector<uint8_t> REDQUEENMutation::flipInputBits(const std::vector<uint8_t>&
                                                      size_t offset, size_t length) {
     std::vector<uint8_t> result = input;
     for (size_t i = 0; i < length && (offset + i) < result.size(); ++i) {
-        result[offset + i] ^= 0xFF; // 翻转所有位
+        result[offset + i] ^= 0xFF; // Flip all bits
     }
     return result;
 }
@@ -409,7 +409,7 @@ std::vector<uint8_t> REDQUEENMutation::flipInputBits(const std::vector<uint8_t>&
 bool REDQUEENMutation::checkStateChange(const std::vector<uint8_t>& original_input,
                                        const std::vector<uint8_t>& modified_input,
                                        SharedContext& ctx) {
-    // 简化实现：检查输入是否真的不同
+    // Simplified: check whether the input actually differs
     if (original_input.size() != modified_input.size()) {
         return true;
     }
@@ -425,19 +425,19 @@ bool REDQUEENMutation::checkStateChange(const std::vector<uint8_t>& original_inp
 
 double REDQUEENMutation::calculateMappingConfidence(const ColoringEntry& entry,
                                                    const std::vector<uint8_t>& input) {
-    double confidence = 0.5; // 基础置信度
+    double confidence = 0.5; // Base confidence
     
-    // 基于命中次数调整
+    // Adjust based on hit count
     if (entry.hit_count > 1) {
         confidence += 0.2;
     }
     
-    // 基于数据类型调整
+    // Adjust based on data type
     if (entry.is_string_compare) {
         confidence += 0.1;
     }
     
-    // 基于数据长度调整
+    // Adjust based on data length
     if (entry.input_bytes.size() > 1) {
         confidence += 0.1;
     }
@@ -448,7 +448,7 @@ double REDQUEENMutation::calculateMappingConfidence(const ColoringEntry& entry,
 std::vector<std::vector<uint8_t>> REDQUEENMutation::generateStringReplacements(const std::string& original) {
     std::vector<std::vector<uint8_t>> replacements;
     
-    // 常见字符串变异
+    // Common string mutations
     std::vector<std::string> mutations = {
         original + "x",
         "x" + original,
@@ -467,7 +467,7 @@ std::vector<std::vector<uint8_t>> REDQUEENMutation::generateStringReplacements(c
 std::vector<std::vector<uint8_t>> REDQUEENMutation::generateNumericReplacements(const std::vector<uint8_t>& original) {
     std::vector<std::vector<uint8_t>> replacements;
     
-    if (original.size() == 4) { // 32位整数
+    if (original.size() == 4) { // 32-bit integer
         uint32_t value = *reinterpret_cast<const uint32_t*>(original.data());
         std::vector<uint32_t> mutations = {
             value + 1, value - 1, value * 2, value / 2,
@@ -491,7 +491,7 @@ bool REDQUEENMutation::applyAutomaticPatch(std::vector<uint8_t>& input, const In
         return false;
     }
     
-    // 直接替换目标字节
+    // Directly replace target bytes
     std::copy(mapping.target_value.begin(), mapping.target_value.end(),
               input.begin() + mapping.input_offset);
     
@@ -502,13 +502,13 @@ std::vector<std::vector<uint8_t>> REDQUEENMutation::generatePatchCandidates(cons
     std::vector<std::vector<uint8_t>> candidates;
     candidates.push_back(mapping.target_value);
     
-    // 生成相似的补丁候选
+    // Generate similar patch candidates
     if (mapping.target_value.size() == 4) {
-        // 数值类型的变异
+        // Numeric-type mutations
         auto numeric_mutations = generateNumericReplacements(mapping.target_value);
         candidates.insert(candidates.end(), numeric_mutations.begin(), numeric_mutations.end());
     } else if (mapping.target_value.size() > 4) {
-        // 可能是字符串类型
+        // Likely string type
         std::string str(mapping.target_value.begin(), mapping.target_value.end());
         auto string_mutations = generateStringReplacements(str);
         candidates.insert(candidates.end(), string_mutations.begin(), string_mutations.end());
@@ -521,7 +521,7 @@ void REDQUEENMutation::updateColoringDatabase(const ColoringResult& result) {
     coloring_database_.insert(coloring_database_.end(), 
                              result.entries.begin(), result.entries.end());
     
-    // 限制数据库大小
+    // Limit database size
     if (coloring_database_.size() > 10000) {
         coloring_database_.erase(coloring_database_.begin(), 
                                 coloring_database_.begin() + 1000);
@@ -532,7 +532,7 @@ std::vector<ColoringEntry> REDQUEENMutation::queryColoringDatabase(const std::ve
     std::vector<ColoringEntry> relevant_entries;
     
     for (const auto& entry : coloring_database_) {
-        // 简单匹配：检查输入是否包含相关字节
+        // Simple match: check whether input contains the relevant bytes
         bool found = false;
         for (size_t i = 0; i <= input.size() - entry.input_bytes.size(); ++i) {
             if (std::equal(entry.input_bytes.begin(), entry.input_bytes.end(),
@@ -557,7 +557,7 @@ std::vector<std::vector<uint8_t>> RedqueenMagicByteExtractor::extractFromCompari
     
     std::vector<std::vector<uint8_t>> magic_bytes;
     
-    // 添加两个操作数作为魔法字节
+    // Add both operands as magic bytes
     if (!cmp_operand1.empty()) {
         magic_bytes.push_back(cmp_operand1);
         extracted_constants_.insert(cmp_operand1);
@@ -579,7 +579,7 @@ std::vector<std::string> RedqueenMagicByteExtractor::extractStringConstants(cons
         if (std::isprint(byte) && byte != 0) {
             current_string += static_cast<char>(byte);
         } else {
-            if (current_string.length() >= 4) { // 至少4个字符
+            if (current_string.length() >= 4) { // At least 4 characters
                 strings.push_back(current_string);
                 string_constants_[current_string] = std::vector<uint8_t>(current_string.begin(), current_string.end());
             }
@@ -587,7 +587,7 @@ std::vector<std::string> RedqueenMagicByteExtractor::extractStringConstants(cons
         }
     }
     
-    // 处理末尾的字符串
+    // Handle trailing string
     if (current_string.length() >= 4) {
         strings.push_back(current_string);
         string_constants_[current_string] = std::vector<uint8_t>(current_string.begin(), current_string.end());
@@ -599,7 +599,7 @@ std::vector<std::string> RedqueenMagicByteExtractor::extractStringConstants(cons
 std::vector<std::vector<uint8_t>> RedqueenMagicByteExtractor::extractNumericConstants(const std::vector<uint8_t>& data) {
     std::vector<std::vector<uint8_t>> constants;
     
-    // 提取2、4、8字节的数值常量
+    // Extract numeric constants of 2, 4, and 8 bytes
     std::vector<size_t> sizes = {2, 4, 8};
     
     for (size_t size : sizes) {
@@ -617,9 +617,9 @@ std::vector<std::vector<uint8_t>> RedqueenMagicByteExtractor::extractNumericCons
 std::vector<size_t> REDQUEENUtils::findPotentialMagicOffsets(const std::vector<uint8_t>& input) {
     std::vector<size_t> offsets;
     
-    // 查找可能的魔法字节位置
+    // Find potential magic-byte offsets
     for (size_t i = 0; i < input.size(); ++i) {
-        // 查找看起来像魔法字节的模式
+        // Look for patterns that look like magic bytes
         if (i + 4 <= input.size()) {
             uint32_t value = *reinterpret_cast<const uint32_t*>(&input[i]);
             if (value == 0x464C457F || // ELF magic
@@ -644,20 +644,20 @@ bool REDQUEENUtils::isLikelyStringData(const std::vector<uint8_t>& data, size_t 
         }
     }
     
-    return printable_count >= length * 0.8; // 80%以上是可打印字符
+    return printable_count >= length * 0.8; // >= 80% printable characters
 }
 
 bool REDQUEENUtils::isLikelyNumericData(const std::vector<uint8_t>& data, size_t offset, size_t length) {
     if (offset + length > data.size()) return false;
     
-    // 检查是否是常见的数值大小
+    // Check for common numeric sizes
     return length == 1 || length == 2 || length == 4 || length == 8;
 }
 
 std::vector<uint8_t> REDQUEENUtils::extractComparisonOperand(const std::vector<uint8_t>& trace_data, 
                                                            uint64_t instruction_address) {
-    // 简化实现：返回固定大小的数据
-    return std::vector<uint8_t>(4, 0); // 占位符实现
+    // Simplified: return fixed-size data
+    return std::vector<uint8_t>(4, 0); // Placeholder implementation
 }
 
 std::vector<uint8_t> REDQUEENUtils::toBytes(uint64_t value, bool little_endian) {

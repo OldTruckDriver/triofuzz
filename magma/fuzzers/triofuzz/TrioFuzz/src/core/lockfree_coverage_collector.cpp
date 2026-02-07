@@ -8,7 +8,7 @@
 
 namespace triofuzz {
 
-// 线程本地存储定义
+// Thread-local storage definition
 thread_local LockFreeCoverageCollector::ThreadLocalData LockFreeCoverageCollector::tls_data_;
 
 LockFreeCoverageCollector::LockFreeCoverageCollector()
@@ -22,7 +22,7 @@ bool LockFreeCoverageCollector::updateGlobalBitmap(uint32_t edge_id) {
     uint8_t expected = 0;
     uint8_t desired = 1;
 
-    // 使用CAS操作原子更新
+    // Atomically update using CAS
     bool success = coverage_data_->bitmap[edge_id].compare_exchange_weak(
         expected, desired,
         std::memory_order_acq_rel,
@@ -42,40 +42,40 @@ bool LockFreeCoverageCollector::updateGlobalBitmap(uint32_t edge_id) {
 void LockFreeCoverageCollector::flushThreadLocal() {
     if (tls_data_.new_edges.empty()) return;
 
-    // 批量更新全局位图
+    // Batch-update the global bitmap
     for (uint32_t edge_id : tls_data_.new_edges) {
         updateGlobalBitmap(edge_id);
     }
 
     metrics.batch_updates.fetch_add(1, std::memory_order_relaxed);
 
-    // 清理线程本地数据
+    // Clear thread-local data
     tls_data_.reset();
 }
 
 size_t LockFreeCoverageCollector::recordCoverageBatch(const std::vector<uint32_t>& edges) {
     size_t new_edges = 0;
 
-    // 分批处理，避免长时间占用
-    const size_t CHUNK_SIZE = 64;  // 缓存友好的大小
+    // Process in chunks to avoid long-running work
+    const size_t CHUNK_SIZE = 64;  // Cache-friendly size
 
     for (size_t i = 0; i < edges.size(); i += CHUNK_SIZE) {
         size_t end = std::min(i + CHUNK_SIZE, edges.size());
 
-        // 预检查，减少原子操作
+        // Pre-check to reduce atomic operations
         std::vector<uint32_t> candidates;
         candidates.reserve(CHUNK_SIZE);
 
         for (size_t j = i; j < end; j++) {
             uint32_t edge_id = edges[j] % MAP_SIZE;
 
-            // 快速检查全局位图（只读）
+            // Quickly check the global bitmap (read-only)
             if (coverage_data_->bitmap[edge_id].load(std::memory_order_relaxed) == 0) {
                 candidates.push_back(edge_id);
             }
         }
 
-        // 批量更新候选边
+        // Batch-update candidate edges
         for (uint32_t edge_id : candidates) {
             if (updateGlobalBitmap(edge_id)) {
                 new_edges++;
@@ -87,7 +87,7 @@ size_t LockFreeCoverageCollector::recordCoverageBatch(const std::vector<uint32_t
 }
 
 bool LockFreeCoverageCollector::hasNewCoverage(const std::bitset<MAP_SIZE>& test_coverage) const {
-    // SIMD优化的比较
+    // SIMD-optimized comparison
     const uint64_t* test_data = reinterpret_cast<const uint64_t*>(&test_coverage);
     const size_t chunks = MAP_SIZE / 64;
 
@@ -95,7 +95,7 @@ bool LockFreeCoverageCollector::hasNewCoverage(const std::bitset<MAP_SIZE>& test
         uint64_t test_chunk = test_data[i];
         if (test_chunk == 0) continue;
 
-        // 检查这个chunk中的每个位
+        // Check each bit in this chunk
         for (size_t bit = 0; bit < 64; bit++) {
             if (test_chunk & (1ULL << bit)) {
                 size_t edge_id = i * 64 + bit;
@@ -114,10 +114,10 @@ bool LockFreeCoverageCollector::hasNewCoverage(const std::bitset<MAP_SIZE>& test
 LockFreeCoverageCollector::CoverageStats LockFreeCoverageCollector::getStats() const {
     CoverageStats stats;
 
-    // 确保线程本地数据已刷新
+    // Ensure thread-local data has been flushed
     const_cast<LockFreeCoverageCollector*>(this)->flushThreadLocal();
 
-    // 统计覆盖的边数
+    // Count covered edges
     size_t covered_edges = 0;
     for (size_t i = 0; i < MAP_SIZE; i++) {
         if (coverage_data_->bitmap[i].load(std::memory_order_relaxed) > 0) {
@@ -146,7 +146,7 @@ std::bitset<LockFreeCoverageCollector::MAP_SIZE> LockFreeCoverageCollector::getC
 }
 
 void LockFreeCoverageCollector::merge(const LockFreeCoverageCollector& other) {
-    // 合并两个收集器的覆盖率
+    // Merge coverage from two collectors
     for (size_t i = 0; i < MAP_SIZE; i++) {
         uint8_t other_val = other.coverage_data_->bitmap[i].load(std::memory_order_relaxed);
         if (other_val > 0) {
@@ -183,28 +183,28 @@ size_t LockFreeCoverageCollector::compareAndUpdateCoverage(const uint8_t* new_co
     size_t new_edges = 0;
     size_t check_size = std::min(size, MAP_SIZE);
 
-    // 使用SIMD指令批量比较（如果可用）
+    // Batch-compare using SIMD instructions (if available)
     #ifdef __AVX2__
-    const size_t simd_size = 32;  // AVX2处理32字节
+    const size_t simd_size = 32;  // AVX2 processes 32 bytes
     size_t simd_iterations = check_size / simd_size;
 
     for (size_t i = 0; i < simd_iterations; i++) {
         size_t offset = i * simd_size;
 
-        // 加载新覆盖率数据
+        // Load new coverage data
         __m256i new_vec = _mm256_loadu_si256((__m256i*)(new_coverage + offset));
 
-        // 加载当前覆盖率（需要逐个加载原子变量）
+        // Load current coverage (requires per-byte atomic loads)
         uint8_t current[32];
         for (size_t j = 0; j < 32; j++) {
             current[j] = coverage_data_->bitmap[offset + j].load(std::memory_order_relaxed);
         }
         __m256i current_vec = _mm256_loadu_si256((__m256i*)current);
 
-        // 找出新覆盖的边（new & ~current）
+        // Find newly covered edges (new & ~current)
         __m256i new_edges_vec = _mm256_andnot_si256(current_vec, new_vec);
 
-        // 更新覆盖率
+        // Update coverage
         uint8_t new_edges_array[32];
         _mm256_storeu_si256((__m256i*)new_edges_array, new_edges_vec);
 
@@ -217,7 +217,7 @@ size_t LockFreeCoverageCollector::compareAndUpdateCoverage(const uint8_t* new_co
         }
     }
 
-    // 处理剩余部分
+    // Handle remainder
     for (size_t i = simd_iterations * simd_size; i < check_size; i++) {
         if (new_coverage[i] && coverage_data_->bitmap[i].load(std::memory_order_relaxed) == 0) {
             if (updateGlobalBitmap(i)) {
@@ -226,7 +226,7 @@ size_t LockFreeCoverageCollector::compareAndUpdateCoverage(const uint8_t* new_co
         }
     }
     #else
-    // 非SIMD回退实现
+    // Non-SIMD fallback implementation
     for (size_t i = 0; i < check_size; i++) {
         if (new_coverage[i] && coverage_data_->bitmap[i].load(std::memory_order_relaxed) == 0) {
             if (updateGlobalBitmap(i)) {
@@ -277,12 +277,12 @@ bool LockFreeCoverageCollector::compareAndSwapEdge(uint32_t edge_id, uint8_t exp
     );
 }
 
-// 获取所有已覆盖的边ID列表 (用于互补性实验分析)
+// Get list of all covered edge IDs (for complementarity experiment analysis)
 std::vector<uint32_t> LockFreeCoverageCollector::getCoveredEdges() const {
     std::vector<uint32_t> covered_edges;
-    covered_edges.reserve(MAP_SIZE / 10);  // 预分配空间
+    covered_edges.reserve(MAP_SIZE / 10);  // Preallocate space
 
-    // 遍历bitmap，收集所有非零的边
+    // Scan bitmap and collect all non-zero edges
     for (uint32_t i = 0; i < MAP_SIZE; ++i) {
         uint8_t val = coverage_data_->bitmap[i].load(std::memory_order_relaxed);
         if (val > 0) {
@@ -293,7 +293,7 @@ std::vector<uint32_t> LockFreeCoverageCollector::getCoveredEdges() const {
     return covered_edges;
 }
 
-// 保存已覆盖的边到文件 (用于互补性实验分析)
+// Save covered edges to a file (for complementarity experiment analysis)
 bool LockFreeCoverageCollector::saveCoveredEdgesToFile(const std::string& output_path) const {
     std::ofstream out(output_path);
     if (!out.is_open()) {
@@ -302,10 +302,10 @@ bool LockFreeCoverageCollector::saveCoveredEdgesToFile(const std::string& output
         return false;
     }
 
-    // 获取所有已覆盖的边
+    // Get all covered edges
     auto covered_edges = getCoveredEdges();
 
-    // 写入文件
+    // Write to file
     out << "# Covered Edges - Total: " << covered_edges.size() << "\n";
     out << "# Format: one edge ID per line\n";
     for (uint32_t edge_id : covered_edges) {
@@ -320,7 +320,7 @@ bool LockFreeCoverageCollector::saveCoveredEdgesToFile(const std::string& output
     return true;
 }
 
-// 全局实例
+// Global instance
 LockFreeCoverageCollector& getGlobalCoverageCollector() {
     static LockFreeCoverageCollector instance;
     return instance;

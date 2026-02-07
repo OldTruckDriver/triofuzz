@@ -3,13 +3,13 @@
 namespace triofuzz {
 
 void FeedbackAlgorithm::saveState(StateWriter& writer) const {
-    // 反馈算法的默认状态保存实现
-    // 子类可以重写这个方法来保存特定的状态
+    // Default state-saving implementation for feedback algorithms.
+    // Subclasses can override this method to persist algorithm-specific state.
 }
 
 void FeedbackAlgorithm::loadState(StateReader& reader) {
-    // 反馈算法的默认状态加载实现
-    // 子类可以重写这个方法来加载特定的状态
+    // Default state-loading implementation for feedback algorithms.
+    // Subclasses can override this method to restore algorithm-specific state.
 }
 
 } // namespace triofuzz 

@@ -7,7 +7,7 @@
 
 namespace triofuzz {
 
-// JSON状态写入器实现
+// JSON state writer implementation
 class JsonStateWriter : public StateWriter {
 private:
     nlohmann::json data_;
@@ -26,7 +26,7 @@ public:
     }
     
     void writeBytes(const std::string& key, const std::vector<uint8_t>& data) override {
-        // 将二进制数据编码为Base64
+        // Encode binary data as a comma-separated string
         std::string encoded;
         for (auto byte : data) {
             encoded += std::to_string(static_cast<int>(byte)) + ",";
@@ -39,7 +39,7 @@ public:
     }
     
     std::string toString() const {
-        return data_.dump(2); // 格式化输出
+        return data_.dump(2); // Pretty-printed output
     }
     
     void saveToFile(const std::string& filename) const {
@@ -52,13 +52,13 @@ public:
     }
 };
 
-// JSON状态读取器实现
+// JSON state reader implementation
 class JsonStateReader : public StateReader {
 private:
     nlohmann::json data_;
     
 public:
-    // 从JSON字符串构造
+    // Construct from a JSON string
     JsonStateReader(const std::string& json_str) {
         try {
             data_ = nlohmann::json::parse(json_str);
@@ -67,7 +67,7 @@ public:
         }
     }
     
-    // 从JSON对象构造
+    // Construct from a JSON object
     explicit JsonStateReader(const nlohmann::json& data) : data_(data) {}
     
     static JsonStateReader fromFile(const std::string& filename) {
@@ -131,7 +131,7 @@ public:
     }
 };
 
-// 状态管理器实现
+// State manager implementation
 class StateManager {
 private:
     std::string state_dir_;
@@ -140,7 +140,7 @@ public:
     explicit StateManager(const std::string& state_dir = "./state") 
         : state_dir_(state_dir) {}
     
-    // 保存算法状态
+    // Save algorithm state
     template<typename Input, typename Output, typename Context>
     bool saveAlgorithmState(const Algorithm<Input, Output, Context>& algorithm, const std::string& name) {
         try {
@@ -158,7 +158,7 @@ public:
         }
     }
     
-    // 加载算法状态
+    // Load algorithm state
     template<typename Input, typename Output, typename Context>
     bool loadAlgorithmState(Algorithm<Input, Output, Context>& algorithm, const std::string& name) {
         try {
@@ -178,7 +178,7 @@ public:
         }
     }
     
-    // 保存全局状态
+    // Save global state
     bool saveGlobalState(const nlohmann::json& state, const std::string& name = "global") {
         try {
             std::filesystem::create_directories(state_dir_);
@@ -198,7 +198,7 @@ public:
         }
     }
     
-    // 加载全局状态
+    // Load global state
     std::optional<nlohmann::json> loadGlobalState(const std::string& name = "global") {
         try {
             std::string filename = state_dir_ + "/" + name + ".json";
@@ -222,7 +222,7 @@ public:
         }
     }
     
-    // 列出所有保存的状态
+    // List all saved states
     std::vector<std::string> listSavedStates() {
         std::vector<std::string> states;
         
@@ -241,7 +241,7 @@ public:
         return states;
     }
     
-    // 删除状态
+    // Delete a state
     bool deleteState(const std::string& name) {
         try {
             std::string filename = state_dir_ + "/" + name + ".json";
@@ -253,17 +253,17 @@ public:
     }
 };
 
-// 实现StateWriter的模板方法
+// Implement StateWriter template method
 template<typename T>
 void StateWriter::write(const std::string& key, const T& value) {
-    // 默认转换为字符串
+    // Default: convert to string
     writeString(key, std::to_string(value));
 }
 
-// 实现StateReader的模板方法
+// Implement StateReader template method
 template<typename T>
 std::optional<T> StateReader::read(const std::string& key) {
-    // 默认尝试从字符串转换
+    // Default: try to parse from string
     auto str = readString(key);
     if (!str.has_value()) return std::nullopt;
     

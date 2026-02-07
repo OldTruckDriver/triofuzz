@@ -6,7 +6,7 @@ export FUZZER=triofuzz
 export TARGET=libpng 
 ./build.sh
 
-mkdir -p /path/to/magma/tools/captain/libpng
+mkdir -p libpng
 
 export FUZZER=triofuzz 
 export TARGET=libpng 

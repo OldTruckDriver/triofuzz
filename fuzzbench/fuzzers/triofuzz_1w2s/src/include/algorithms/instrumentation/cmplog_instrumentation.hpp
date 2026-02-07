@@ -15,27 +15,27 @@
 
 namespace triofuzz {
 
-// CmpLog比较指令插桩算法
+// CmpLog comparison-instruction instrumentation
 class CmpLogInstrumentation : public InstrumentationAlgorithm {
 public:
-    // 比较操作类型
+    // Comparison operation types
     enum class ComparisonType {
-        INTEGER_EQ,    // 整数相等比较
-        INTEGER_NE,    // 整数不等比较
-        INTEGER_LT,    // 整数小于比较
-        INTEGER_LE,    // 整数小于等于比较
-        INTEGER_GT,    // 整数大于比较
-        INTEGER_GE,    // 整数大于等于比较
-        STRING_EQ,     // 字符串相等比较
-        STRING_NE,     // 字符串不等比较
-        STRING_CMP,    // 字符串比较(strcmp)
-        MEMCMP,        // 内存比较
-        FLOATING_EQ,   // 浮点相等比较
-        FLOATING_LT,   // 浮点小于比较
-        CUSTOM         // 自定义比较
+        INTEGER_EQ,    // Integer equality comparison
+        INTEGER_NE,    // Integer inequality comparison
+        INTEGER_LT,    // Integer less-than comparison
+        INTEGER_LE,    // Integer less-than-or-equal comparison
+        INTEGER_GT,    // Integer greater-than comparison
+        INTEGER_GE,    // Integer greater-than-or-equal comparison
+        STRING_EQ,     // String equality comparison
+        STRING_NE,     // String inequality comparison
+        STRING_CMP,    // String comparison (strcmp)
+        MEMCMP,        // Memory comparison
+        FLOATING_EQ,   // Floating-point equality comparison
+        FLOATING_LT,   // Floating-point less-than comparison
+        CUSTOM         // Custom comparison
     };
     
-    // 比较指令信息
+    // Comparison instruction information
     struct ComparisonInfo {
         uint64_t instruction_address;
         ComparisonType type;
@@ -43,19 +43,19 @@ public:
         std::string function_name;
         std::string source_location;
         
-        // 操作数信息
+        // Operand information
         struct Operand {
             std::vector<uint8_t> value;
             bool is_constant = false;
             bool is_input_derived = false;
-            size_t input_offset = 0;  // 如果来自输入，记录偏移
+            size_t input_offset = 0;  // If derived from input, record the offset
         };
         
         Operand left_operand;
         Operand right_operand;
         bool comparison_result = false;
         
-        // 统计信息
+        // Statistics
         uint64_t hit_count = 0;
         uint64_t true_count = 0;
         uint64_t false_count = 0;
@@ -63,7 +63,7 @@ public:
         std::chrono::system_clock::time_point last_hit;
     };
     
-    // CmpLog配置
+    // CmpLog configuration
     struct CmpLogConfig {
         bool enable_integer_comparisons = true;
         bool enable_string_comparisons = true;
@@ -76,18 +76,18 @@ public:
         size_t max_comparisons_per_location = 1000;
         size_t constraint_cache_size = 10000;
         
-        // 优化参数
+        // Optimization parameters
         bool enable_comparison_deduplication = true;
         bool enable_hot_comparison_optimization = true;
         double hot_comparison_threshold = 0.1;
         
-        // 过滤参数
+        // Filtering parameters
         std::set<std::string> ignored_functions;
         std::set<uint64_t> ignored_addresses;
         size_t min_operand_size = 1;
     };
     
-    // 约束生成结果
+    // Constraint generation result
     struct ConstraintSet {
         std::vector<std::shared_ptr<Constraint>> constraints;
         std::map<size_t, std::vector<uint8_t>> suggested_mutations;
@@ -98,19 +98,19 @@ public:
 private:
     CmpLogConfig config_;
     
-    // 比较指令映射
+    // Comparison instruction mapping
     std::unordered_map<uint64_t, ComparisonInfo> comparison_map_;
     std::unordered_map<uint64_t, std::queue<ComparisonInfo>> comparison_history_;
     
-    // 约束管理
+    // Constraint management
     std::vector<std::shared_ptr<Constraint>> generated_constraints_;
     std::unordered_map<std::string, std::shared_ptr<Constraint>> constraint_cache_;
     
-    // 输入跟踪
+    // Input tracking
     std::vector<uint8_t> current_input_;
     std::unordered_map<size_t, std::set<uint64_t>> input_dependencies_;
     
-    // 统计信息
+    // Statistics
     struct Statistics {
         size_t total_comparisons = 0;
         size_t unique_comparisons = 0;
@@ -118,11 +118,11 @@ private:
         size_t solvable_constraints = 0;
         size_t successful_mutations = 0;
         double constraint_solving_rate = 0.0;
-        // 按比较类型统计
+        // Distribution by comparison type
         std::map<uint64_t, size_t> comparison_type_distribution;
     } stats_;
     
-    // 运行时优化
+    // Runtime optimizations
     std::set<uint64_t> hot_comparisons_;
     std::unordered_map<uint64_t, size_t> comparison_frequencies_;
     
@@ -144,12 +144,12 @@ public:
     void saveState(StateWriter& writer) const override;
     void loadState(StateReader& reader) override;
     
-    // 插桩接口
+    // Instrumentation API
     void instrumentComparison(uint64_t instruction_addr, ComparisonType type, size_t operand_size);
     void instrumentStringFunction(uint64_t func_addr, const std::string& func_name);
     void instrumentMemoryComparison(uint64_t instruction_addr, size_t size);
     
-    // 运行时回调接口
+    // Runtime callback API
     void recordComparison(uint64_t instruction_addr, const void* left, const void* right,
                          size_t size, bool result);
     void recordStringComparison(uint64_t instruction_addr, const char* left, const char* right,
@@ -157,53 +157,53 @@ public:
     void recordIntegerComparison(uint64_t instruction_addr, uint64_t left, uint64_t right,
                                  size_t operand_size, ComparisonType type, bool result);
     
-    // 约束生成
+    // Constraint generation
     ConstraintSet generateConstraints(const std::vector<uint8_t>& input);
     std::vector<std::shared_ptr<Constraint>> extractConstraintsFromComparison(
         const ComparisonInfo& comp_info) const;
     
-    // 变异建议
+    // Mutation suggestions
     std::vector<std::vector<uint8_t>> generateMutationSuggestions(
         const std::vector<uint8_t>& input, size_t max_suggestions = 10);
     std::vector<uint8_t> mutateBasedOnComparison(const std::vector<uint8_t>& input,
                                                 const ComparisonInfo& comp_info) const;
     
-    // 查询接口
+    // Query API
     std::vector<ComparisonInfo> getComparisons() const;
     std::vector<ComparisonInfo> getComparisonsForFunction(const std::string& func_name) const;
     ComparisonInfo getComparisonInfo(uint64_t instruction_addr) const;
     
-    // 统计和分析
+    // Statistics and analysis
     Statistics getStatistics() const { return stats_; }
     std::vector<uint64_t> getHotComparisons() const;
     std::vector<uint64_t> getFailingComparisons() const;
     double getConstraintSolvingRate() const;
     
-    // 配置管理
+    // Configuration management
     void setConfig(const CmpLogConfig& config) { config_ = config; }
     CmpLogConfig getConfig() const { return config_; }
     
-    // 输入关联
+    // Input association
     void setCurrentInput(const std::vector<uint8_t>& input) { current_input_ = input; }
     void trackInputDependency(size_t input_offset, uint64_t instruction_addr);
     
 private:
-    // 初始化
+    // Initialization
     void initializeInstrumentation();
     
-    // 比较分析
+    // Comparison analysis
     void analyzeComparison(ComparisonInfo& comp_info);
     ComparisonType detectComparisonType(uint64_t instruction_addr) const;
     bool isInputDerived(const std::vector<uint8_t>& value, size_t& offset) const;
     void publishComparisonData(SharedContext& ctx) const;
     static size_t determineIntegerOperandSize(uint64_t left, uint64_t right, size_t requested_size);
     
-    // 约束生成辅助
+    // Constraint generation helpers
     std::shared_ptr<Constraint> createEqualityConstraint(const ComparisonInfo& comp_info) const;
     std::shared_ptr<Constraint> createInequalityConstraint(const ComparisonInfo& comp_info) const;
     std::shared_ptr<Constraint> createStringConstraint(const ComparisonInfo& comp_info) const;
     
-    // 变异策略
+    // Mutation strategies
     std::vector<uint8_t> mutateForEquality(const std::vector<uint8_t>& input,
                                           const ComparisonInfo& comp_info) const;
     std::vector<uint8_t> mutateForInequality(const std::vector<uint8_t>& input,
@@ -211,49 +211,49 @@ private:
     std::vector<uint8_t> mutateForStringMatch(const std::vector<uint8_t>& input,
                                              const ComparisonInfo& comp_info) const;
     
-    // 优化
+    // Optimization
     void optimizeInstrumentation();
     void identifyHotComparisons();
     bool shouldInstrument(uint64_t instruction_addr) const;
     
-    // 统计更新
+    // Statistics updates
     void updateStatistics();
     void recordConstraintGeneration(const std::shared_ptr<Constraint>& constraint);
     
-    // 缓存管理
+    // Cache management
     void cacheConstraint(const std::string& key, std::shared_ptr<Constraint> constraint);
     std::shared_ptr<Constraint> getCachedConstraint(const std::string& key) const;
     void cleanupCache();
     
-    // 工具函数
+    // Utility functions
     std::string formatOperand(const ComparisonInfo::Operand& operand) const;
     std::string generateConstraintKey(const ComparisonInfo& comp_info) const;
     size_t calculateEditDistance(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) const;
 };
 
-// CmpLog约束求解器接口
+// CmpLog constraint solver interface
 class CmpLogConstraintSolver {
 public:
     virtual ~CmpLogConstraintSolver() = default;
     
-    // 求解约束
+    // Solve a constraint
     virtual bool solveConstraint(const Constraint& constraint,
                                 std::vector<uint8_t>& solution) = 0;
     
-    // 批量求解
+    // Batch solve
     virtual std::vector<std::vector<uint8_t>> solveConstraints(
         const std::vector<std::shared_ptr<Constraint>>& constraints,
         size_t max_solutions = 1) = 0;
     
-    // 约束简化
+    // Constraint simplification
     virtual std::shared_ptr<Constraint> simplifyConstraint(
         const std::shared_ptr<Constraint>& constraint) = 0;
     
-    // 约束可满足性检查
+    // Constraint satisfiability check
     virtual bool isConstraintSatisfiable(const std::shared_ptr<Constraint>& constraint) = 0;
 };
 
-// 简单的CmpLog约束求解器实现
+// Simple CmpLog constraint solver implementation
 class SimpleCmpLogSolver : public CmpLogConstraintSolver {
 private:
     size_t max_solve_time_ms_ = 1000;
@@ -272,22 +272,22 @@ public:
     
     bool isConstraintSatisfiable(const std::shared_ptr<Constraint>& constraint) override;
     
-    // 配置
+    // Configuration
     void setMaxSolveTime(size_t time_ms) { max_solve_time_ms_ = time_ms; }
     void setMaxIterations(size_t iterations) { max_iterations_ = iterations; }
     
 private:
-    // 求解策略
+    // Solving strategies
     bool solveEqualityConstraint(const Constraint& constraint, std::vector<uint8_t>& solution);
     bool solveInequalityConstraint(const Constraint& constraint, std::vector<uint8_t>& solution);
     bool solveStringConstraint(const Constraint& constraint, std::vector<uint8_t>& solution);
     
-    // 辅助函数
+    // Helper functions
     std::vector<uint8_t> generateRandomSolution(size_t size);
     bool verifySolution(const Constraint& constraint, const std::vector<uint8_t>& solution);
 };
 
-// CmpLog分析器
+// CmpLog analyzer
 class CmpLogAnalyzer {
 private:
     std::shared_ptr<CmpLogInstrumentation> instrumentation_;
@@ -295,7 +295,7 @@ private:
 public:
     explicit CmpLogAnalyzer(std::shared_ptr<CmpLogInstrumentation> inst);
     
-    // 分析接口
+    // Analysis interface
     struct AnalysisResult {
         std::vector<std::string> bottleneck_functions;
         std::map<std::string, size_t> comparison_type_distribution;
@@ -306,16 +306,16 @@ public:
     
     AnalysisResult analyzeComparisons();
     
-    // 性能分析
+    // Performance analysis
     std::vector<uint64_t> identifyPerformanceBottlenecks();
     std::map<std::string, double> getFunctionConstraintComplexity();
     
-    // 可视化数据
+    // Visualization data
     std::map<uint64_t, std::vector<size_t>> getComparisonTypeTimeline();
     std::vector<std::pair<uint64_t, size_t>> getComparisonHeatmap();
 };
 
-// 具体的约束类实现（用于CmpLog）
+// Concrete constraint class implementations (for CmpLog)
 class CmpLogEqualityConstraint : public Constraint {
 private:
     uint64_t instruction_address_;
@@ -384,7 +384,7 @@ public:
     
     std::optional<std::map<size_t, ConcreteValue>> solve() const override {
         std::map<size_t, ConcreteValue> solution;
-        // 简单求解：对于不等约束，稍微调整目标值
+        // Simple solving: for inequality constraints, slightly adjust the target value.
         for (size_t i = 0; i < target_value_.size(); ++i) {
             uint8_t adjusted = target_value_[i];
             if (is_less_than_ && adjusted > 0) {

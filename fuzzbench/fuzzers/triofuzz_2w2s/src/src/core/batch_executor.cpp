@@ -13,29 +13,29 @@ BatchExecutor::BatchExecutor(const BatchConfig& config)
     : config_(config),
       coverage_collector_(getGlobalCoverageCollector()) {
 
-    // 初始化线程池
+    // Initialize thread pool
     if (config_.enable_parallel) {
         for (size_t i = 0; i < config_.worker_threads; i++) {
             workers_.emplace_back(&BatchExecutor::workerThread, this);
         }
     }
 
-    // 预分配内存池
+    // Preallocate memory pool
     for (size_t i = 0; i < config_.batch_size * 2; i++) {
         memory_pool_.buffers.emplace_back();
-        memory_pool_.buffers.back().reserve(65536);  // 预分配64KB
+        memory_pool_.buffers.back().reserve(65536);  // Preallocate 64KB
     }
 }
 
 BatchExecutor::~BatchExecutor() {
-    // 停止工作线程
+    // Stop worker threads
     {
         std::unique_lock<std::mutex> lock(queue_mutex_);
         stop_ = true;
     }
     cv_.notify_all();
 
-    // 等待所有线程结束
+    // Wait for all threads to finish
     for (auto& worker : workers_) {
         if (worker.joinable()) {
             worker.join();
@@ -76,19 +76,19 @@ BatchExecutor::BatchResult BatchExecutor::executeBatch(
     batch_result.results.reserve(inputs.size());
 
     if (config_.enable_parallel && inputs.size() > 4) {
-        // 并行执行
+        // Parallel execution
         batch_result.results = parallelExecute(inputs);
     } else {
-        // 串行执行
+        // Serial execution
         for (const auto& input : inputs) {
             batch_result.results.push_back(executeOne(input));
         }
     }
 
-    // 批量分析覆盖率
+    // Batch coverage analysis
     batchCoverageAnalysis(batch_result);
 
-    // 统计崩溃
+    // Count crashes
     for (const auto& result : batch_result.results) {
         if (result.status == ExecutionStatus::CRASHED) {
             batch_result.crash_count++;
@@ -98,12 +98,12 @@ BatchExecutor::BatchResult BatchExecutor::executeBatch(
     auto end_time = std::chrono::high_resolution_clock::now();
     batch_result.total_exec_time = std::chrono::duration<double>(end_time - start_time).count();
 
-    // 更新统计
+    // Update statistics
     stats_.total_executions.fetch_add(inputs.size(), std::memory_order_relaxed);
     stats_.total_batches.fetch_add(1, std::memory_order_relaxed);
     stats_.total_new_coverage.fetch_add(batch_result.new_edge_count, std::memory_order_relaxed);
     stats_.total_crashes.fetch_add(batch_result.crash_count, std::memory_order_relaxed);
-    // 原子double不支持fetch_add，使用互斥锁
+    // atomic<double> doesn't support fetch_add; use a mutex.
     static std::mutex time_mutex;
     {
         std::lock_guard<std::mutex> lock(time_mutex);
@@ -128,7 +128,7 @@ std::vector<BatchExecutor::ExecutionResult> BatchExecutor::parallelExecute(
     std::vector<BatchExecutor::ExecutionResult> results(inputs.size());
     std::vector<std::future<void>> futures;
 
-    // 将执行任务分配到线程池
+    // Dispatch execution tasks to the thread pool
     for (size_t i = 0; i < inputs.size(); i++) {
         auto task = [this, &inputs, &results, i]() {
             results[i] = executeOne(inputs[i]);
@@ -146,7 +146,7 @@ std::vector<BatchExecutor::ExecutionResult> BatchExecutor::parallelExecute(
         cv_.notify_one();
     }
 
-    // 等待所有任务完成
+    // Wait for all tasks to complete
     for (auto& future : futures) {
         future.wait();
     }
@@ -161,7 +161,7 @@ BatchExecutor::ExecutionResult BatchExecutor::executeOne(const std::vector<uint8
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    // 执行目标函数
+    // Execute target function
     BatchExecutor::ExecutionResult result = target_executor_(input);
 
     auto end = std::chrono::high_resolution_clock::now();
@@ -171,17 +171,17 @@ BatchExecutor::ExecutionResult BatchExecutor::executeOne(const std::vector<uint8
     return result;
 }
 
-void BatchExecutor::batchCoverageAnalysis(BatchResult& batch_result) {
+    void BatchExecutor::batchCoverageAnalysis(BatchResult& batch_result) {
     size_t new_edges_total = 0;
 
-    // 批量检查新覆盖
+    // Batch-check for new coverage
     for (size_t i = 0; i < batch_result.results.size(); i++) {
         auto& result = batch_result.results[i];
 
-        // 检查是否有新覆盖
+        // Check for new coverage
         bool has_new = false;
         if (!result.coverage.new_edges.empty()) {
-            // 批量更新覆盖率收集器
+            // Update the coverage collector in batch
             // Convert uint64_t to uint32_t for the coverage collector
             std::vector<uint32_t> edges_32;
             edges_32.reserve(result.coverage.new_edges.size());
@@ -205,13 +205,13 @@ void BatchExecutor::batchCoverageAnalysis(BatchResult& batch_result) {
 
 void BatchExecutor::prefetchData(const std::vector<uint8_t>& data) {
     #ifdef __builtin_prefetch
-    // 预取数据到L1缓存
+    // Prefetch data into L1 cache
     const size_t cache_line_size = 64;
     const uint8_t* ptr = data.data();
     size_t size = data.size();
 
     for (size_t i = 0; i < size; i += cache_line_size) {
-        __builtin_prefetch(ptr + i, 0, 3);  // 预取用于读取，高时间局部性
+        __builtin_prefetch(ptr + i, 0, 3);  // Prefetch for reading; high temporal locality
     }
     #endif
 }
@@ -222,14 +222,14 @@ std::vector<std::vector<uint8_t>> BatchExecutor::vectorizedMutation(
     std::vector<std::vector<uint8_t>> mutated;
     mutated.reserve(inputs.size());
 
-    // 简单的SIMD优化位翻转变异示例
+    // Simple SIMD-optimized bit-flip mutation example
     #ifdef __AVX2__
-    const __m256i flip_mask = _mm256_set1_epi8(0x01);  // 翻转最低位
+    const __m256i flip_mask = _mm256_set1_epi8(0x01);  // Flip the lowest bit
 
     for (const auto& input : inputs) {
         std::vector<uint8_t> output = input;
         size_t size = input.size();
-        size_t simd_size = size & ~31;  // 对齐到32字节
+        size_t simd_size = size & ~31;  // Align to 32 bytes
 
         for (size_t i = 0; i < simd_size; i += 32) {
             __m256i data = _mm256_loadu_si256((__m256i*)(input.data() + i));
@@ -237,7 +237,7 @@ std::vector<std::vector<uint8_t>> BatchExecutor::vectorizedMutation(
             _mm256_storeu_si256((__m256i*)(output.data() + i), mutated_data);
         }
 
-        // 处理剩余字节
+        // Handle remaining bytes
         for (size_t i = simd_size; i < size; i++) {
             output[i] ^= 0x01;
         }
@@ -245,7 +245,7 @@ std::vector<std::vector<uint8_t>> BatchExecutor::vectorizedMutation(
         mutated.push_back(std::move(output));
     }
     #else
-    // 非SIMD回退
+    // Non-SIMD fallback
     for (const auto& input : inputs) {
         std::vector<uint8_t> output = input;
         for (auto& byte : output) {
@@ -259,13 +259,13 @@ std::vector<std::vector<uint8_t>> BatchExecutor::vectorizedMutation(
 }
 
 void BatchExecutor::adjustBatchSize(double coverage_rate, double exec_time) {
-    // 自适应调整批次大小
+    // Adaptively adjust batch size
     if (coverage_rate > 0.1) {
-        // 高覆盖率发现率，减小批次以快速反馈
+        // High coverage discovery rate: shrink batch for faster feedback
         config_.batch_size = std::max(size_t(32),
             config_.batch_size - config_.batch_size / 4);
     } else if (coverage_rate < 0.01 && exec_time < 10.0) {
-        // 低覆盖率且执行快，增大批次提高吞吐量
+        // Low coverage and fast execution: grow batch to increase throughput
         config_.batch_size = std::min(MAX_BATCH_SIZE,
             config_.batch_size + config_.batch_size / 4);
     }
@@ -274,26 +274,26 @@ void BatchExecutor::adjustBatchSize(double coverage_rate, double exec_time) {
 std::unique_ptr<BatchExecutor::Pipeline> BatchExecutor::createOptimizedPipeline() {
     auto pipeline = std::make_unique<Pipeline>();
 
-    // 变异阶段
+    // Mutation stage
     pipeline->addStage(Pipeline::MUTATION, [](void* data) {
-        // 变异处理逻辑
+        // Mutation processing logic
     });
 
-    // 执行阶段
+    // Execution stage
     pipeline->addStage(Pipeline::EXECUTION, [this](void* data) {
         auto* input = static_cast<std::vector<uint8_t>*>(data);
         auto result = executeOne(*input);
-        // 传递结果到下一阶段
+        // Pass results to the next stage
     });
 
-    // 分析阶段
+    // Analysis stage
     pipeline->addStage(Pipeline::ANALYSIS, [](void* data) {
-        // 覆盖率分析逻辑
+        // Coverage analysis logic
     });
 
-    // 反馈阶段
+    // Feedback stage
     pipeline->addStage(Pipeline::FEEDBACK, [](void* data) {
-        // 反馈处理逻辑
+        // Feedback processing logic
     });
 
     return pipeline;
@@ -337,7 +337,7 @@ void BatchExecutor::resetStats() {
     stats_.total_time = 0.0;
 }
 
-// Pipeline 实现
+// Pipeline implementation
 BatchExecutor::Pipeline::Pipeline() {}
 
 BatchExecutor::Pipeline::~Pipeline() {
@@ -384,7 +384,7 @@ void BatchExecutor::Pipeline::run() {
 }
 
 void BatchExecutor::Pipeline::stop() {
-    // 停止所有阶段线程
+    // Stop all stage threads
     for (auto& thread : stage_threads_) {
         if (thread.joinable()) {
             thread.join();

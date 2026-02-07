@@ -10,11 +10,11 @@
 
 namespace triofuzz {
 
-// 调度算法输入输出类型
+// Scheduling algorithm I/O types
 using SchedulingInput = std::vector<Seed>;
 using SchedulingOutput = Seed;
 
-// 种子调度算法基类
+// Base class for seed scheduling algorithms
 class SchedulingAlgorithm : public Algorithm<SchedulingInput, SchedulingOutput, SharedContext> {
 protected:
     std::mt19937 random_gen_;
@@ -30,14 +30,14 @@ public:
     }
     
     void saveState(StateWriter& writer) const override {
-        // 保存随机数生成器状态
+        // Save RNG state
         std::ostringstream oss;
         oss << random_gen_;
         writer.writeString("random_gen_state", oss.str());
     }
     
     void loadState(StateReader& reader) override {
-        // 加载随机数生成器状态
+        // Load RNG state
         auto state = reader.readString("random_gen_state");
         if (state.has_value()) {
             std::istringstream iss(state.value());
@@ -46,13 +46,13 @@ public:
     }
 };
 
-// 能量调度算法（AFL风格） - 已归档
+// Energy scheduler (AFL-style) - archived
 /* class EnergyScheduler : public SchedulingAlgorithm {
 protected:
-    std::map<size_t, double> seed_energy_; // 种子ID到能量的映射
+    std::map<size_t, double> seed_energy_; // Mapping from seed ID to energy
     double base_energy_ = 1.0;
     
-    // 能量分配参数
+    // Energy allocation parameters
     struct EnergyFactors {
         double execution_speed_factor = 1.0;
         double coverage_factor = 2.0;
@@ -78,17 +78,17 @@ public:
                 throw std::runtime_error("No seeds available for scheduling");
             }
             
-            // 计算每个种子的能量
+            // Compute energy for each seed
             std::vector<std::pair<size_t, double>> seed_energies;
             for (size_t i = 0; i < seeds.size(); ++i) {
                 double energy = computeEnergy(seeds[i], ctx);
                 seed_energies.emplace_back(i, energy);
             }
             
-            // 根据能量概率选择种子
+            // Select a seed probabilistically by energy
             size_t selected_idx = selectByEnergy(seed_energies);
             
-            // 更新能量信息到上下文
+            // Publish energy info to the context
             EnergyInfo energy_info;
             energy_info.current_energy = seed_energies[selected_idx].second;
             energy_info.base_energy = base_energy_;
@@ -98,7 +98,7 @@ public:
         });
     }
     
-    // 设置能量分配
+    // Set energy distribution
     void setEnergyDistribution(const std::map<size_t, double>& distribution) {
         seed_energy_ = distribution;
     }
@@ -109,7 +109,7 @@ public:
         auto base = params.get<double>("base_energy");
         if (base.has_value()) base_energy_ = base.value();
         
-        // 更新能量因子
+        // Update energy factors
         auto speed_factor = params.get<double>("execution_speed_factor");
         if (speed_factor.has_value()) energy_factors_.execution_speed_factor = speed_factor.value();
         
@@ -149,48 +149,48 @@ public:
     }
     
 private:
-    // 计算种子能量
+    // Compute seed energy
     double computeEnergy(const Seed& seed, SharedContext& ctx) {
         double energy = base_energy_;
         
-        // 执行速度因子
+        // Execution speed factor
         if (seed.performance.execution_time_ms > 0) {
             double speed_bonus = 1000.0 / seed.performance.execution_time_ms;
             energy *= std::pow(speed_bonus, energy_factors_.execution_speed_factor);
         }
         
-        // 覆盖率因子
+        // Coverage factor
         double coverage_bonus = 1.0 + seed.coverage.coverage_gain;
         energy *= std::pow(coverage_bonus, energy_factors_.coverage_factor);
         
-        // 深度因子（代数越高，能量越低）
+        // Depth factor (higher generation -> lower energy)
         double depth_penalty = 1.0 / (1.0 + seed.generation * 0.1);
         energy *= std::pow(depth_penalty, energy_factors_.depth_factor);
         
-        // 稀有边因子
+        // Rare-edge factor
         if (!seed.coverage.rare_edges.empty()) {
             double rarity_bonus = 1.0 + seed.coverage.rare_edges.size() * 0.1;
             energy *= std::pow(rarity_bonus, energy_factors_.rarity_factor);
         }
         
-        // 时间衰减因子
+        // Time decay factor
         auto age = std::chrono::system_clock::now() - seed.created_time;
         double age_minutes = std::chrono::duration<double, std::ratio<60>>(age).count();
-        double recency_penalty = std::exp(-age_minutes / 60.0); // 1小时半衰期
+        double recency_penalty = std::exp(-age_minutes / 60.0); // 1-hour half-life
         energy *= std::pow(recency_penalty, energy_factors_.recency_factor);
         
-        return std::max(0.1, energy); // 最小能量0.1
+        return std::max(0.1, energy); // Minimum energy: 0.1
     }
     
-    // 根据能量选择种子
+    // Select a seed by energy
     size_t selectByEnergy(const std::vector<std::pair<size_t, double>>& seed_energies) {
-        // 计算总能量
+        // Compute total energy
         double total_energy = 0.0;
         for (const auto& [idx, energy] : seed_energies) {
             total_energy += energy;
         }
         
-        // 轮盘赌选择
+        // Roulette-wheel selection
         std::uniform_real_distribution<double> dist(0.0, total_energy);
         double random_point = dist(random_gen_);
         
@@ -202,18 +202,18 @@ private:
             }
         }
         
-        // 默认返回最后一个
+        // Fallback to the last seed
         return seed_energies.back().first;
     }
-}; */ // 已归档
+}; */ // Archived
 
-// 多臂赌博机调度器
+// Multi-armed bandit scheduler
 class MABScheduler : public SchedulingAlgorithm {
 private:
-    // UCB参数
+    // UCB parameters
     double exploration_constant_ = std::sqrt(2.0);
     
-    // 种子统计
+    // Seed statistics
     struct SeedStats {
         double total_reward = 0.0;
         size_t selection_count = 0;
@@ -241,14 +241,14 @@ public:
                 throw std::runtime_error("No seeds available for scheduling");
             }
             
-            // 计算每个种子的UCB值
+            // Compute UCB value for each seed
             std::vector<std::pair<size_t, double>> ucb_values;
             for (size_t i = 0; i < seeds.size(); ++i) {
                 double ucb = computeUCB(i, seeds[i]);
                 ucb_values.emplace_back(i, ucb);
             }
             
-            // 选择UCB值最高的种子
+            // Select the seed with the highest UCB value
             auto best_it = std::max_element(ucb_values.begin(), ucb_values.end(),
                 [](const auto& a, const auto& b) { return a.second < b.second; });
             
@@ -260,7 +260,7 @@ public:
         });
     }
     
-    // 更新种子奖励
+    // Update seed reward
     void updateReward(size_t seed_idx, double reward) {
         auto& stats = seed_stats_[seed_idx];
         stats.total_reward += reward;
@@ -277,7 +277,7 @@ public:
         writer.writeDouble("exploration_constant", exploration_constant_);
         writer.writeInt("total_selections", total_selections_);
         
-        // 保存种子统计信息
+        // Save seed statistics
         writer.writeInt("seed_stats_size", seed_stats_.size());
         for (const auto& [idx, stats] : seed_stats_) {
             std::string prefix = "seed_" + std::to_string(idx) + "_";
@@ -295,7 +295,7 @@ public:
         auto total_sel = reader.readInt("total_selections");
         if (total_sel.has_value()) total_selections_ = total_sel.value();
         
-        // 加载种子统计信息
+        // Load seed statistics
         auto stats_size = reader.readInt("seed_stats_size");
         if (stats_size.has_value()) {
             for (size_t i = 0; i < static_cast<size_t>(stats_size.value()); ++i) {
@@ -316,46 +316,46 @@ public:
     }
     
 private:
-    // 计算UCB值
+    // Compute UCB value
     double computeUCB(size_t seed_idx, const Seed& seed) {
         auto& stats = seed_stats_[seed_idx];
         
         if (stats.selection_count == 0) {
-            return std::numeric_limits<double>::max(); // 未探索的种子优先
+            return std::numeric_limits<double>::max(); // Prioritize untried seeds
         }
         
-        // UCB = 平均奖励 + 探索项
+        // UCB = average reward + exploration term
         double exploitation = stats.average_reward;
         double exploration = exploration_constant_ * 
                            std::sqrt(std::log(total_selections_) / stats.selection_count);
         
-        // 添加一些启发式因子
+        // Add some heuristic factors
         double heuristic_bonus = 0.0;
         
-        // 新覆盖奖励
+        // New coverage reward
         if (seed.coverage.hasNewCoverage()) {
             heuristic_bonus += 0.2;
         }
         
-        // 稀有边奖励
+        // Rare-edge reward
         heuristic_bonus += seed.coverage.rare_edges.size() * 0.05;
         
         return exploitation + exploration + heuristic_bonus;
     }
 };
 
-// 强化学习调度器（Q-Learning）
+// Reinforcement-learning scheduler (Q-learning)
 class RLScheduler : public SchedulingAlgorithm {
 private:
-    // Q表：状态-动作值函数
+    // Q-table: state-action value function
     std::map<std::string, std::map<size_t, double>> q_table_;
     
-    // 学习参数
+    // Learning parameters
     double learning_rate_ = 0.1;
     double discount_factor_ = 0.9;
-    double epsilon_ = 0.1; // ε-贪婪探索
+    double epsilon_ = 0.1; // ε-greedy exploration
     
-    // 状态特征提取器
+    // State feature extractor
     std::string current_state_;
     
 public:
@@ -375,19 +375,19 @@ public:
                 throw std::runtime_error("No seeds available for scheduling");
             }
             
-            // 提取当前状态
+            // Extract current state
             current_state_ = extractState(ctx);
             
-            // ε-贪婪策略选择动作
+            // Choose action via ε-greedy policy
             size_t selected_idx;
             std::uniform_real_distribution<double> epsilon_dist(0.0, 1.0);
             
             if (epsilon_dist(random_gen_) < epsilon_) {
-                // 探索：随机选择
+                // Explore: random selection
                 std::uniform_int_distribution<size_t> rand_dist(0, seeds.size() - 1);
                 selected_idx = rand_dist(random_gen_);
             } else {
-                // 利用：选择Q值最高的动作
+                // Exploit: select the action with the highest Q-value
                 selected_idx = selectBestAction(seeds);
             }
             
@@ -395,12 +395,12 @@ public:
         });
     }
     
-    // 更新Q值
+    // Update Q-value
     void updateQValue(size_t action, double reward, const std::string& next_state) {
         auto& state_q = q_table_[current_state_];
         double old_q = state_q[action];
         
-        // 计算下一状态的最大Q值
+        // Compute max Q-value for the next state
         double max_next_q = 0.0;
         auto next_it = q_table_.find(next_state);
         if (next_it != q_table_.end()) {
@@ -409,7 +409,7 @@ public:
             }
         }
         
-        // Q-learning更新公式
+        // Q-learning update rule
         double new_q = old_q + learning_rate_ * (reward + discount_factor_ * max_next_q - old_q);
         state_q[action] = new_q;
     }
@@ -421,7 +421,7 @@ public:
         writer.writeDouble("epsilon", epsilon_);
         writer.writeString("current_state", current_state_);
         
-        // 保存Q表
+        // Save Q-table
         writer.writeInt("q_table_size", q_table_.size());
         size_t state_idx = 0;
         for (const auto& [state, actions] : q_table_) {
@@ -451,7 +451,7 @@ public:
         auto state = reader.readString("current_state");
         if (state.has_value()) current_state_ = state.value();
         
-        // 加载Q表
+        // Load Q-table
         auto q_table_size = reader.readInt("q_table_size");
         if (q_table_size.has_value()) {
             q_table_.clear();
@@ -475,21 +475,21 @@ public:
     }
     
 private:
-    // 提取状态特征
+    // Extract state features
     std::string extractState(SharedContext& ctx) {
         std::string state;
         
-        // 基于覆盖率的状态
+        // Coverage-based state
         auto coverage_info = ctx.getCoverageInfo();
         if (coverage_info.has_value()) {
             double coverage_pct = coverage_info->getCoveragePercentage();
             state += "cov:" + std::to_string(static_cast<int>(coverage_pct / 10) * 10) + ";";
             
-            // 最近是否有新覆盖
+            // Whether there is recent new coverage
             state += coverage_info->hasNewCoverage() ? "new:1;" : "new:0;";
         }
         
-        // 基于性能的状态
+        // Performance-based state
         auto perf_info = ctx.getPerformanceInfo();
         if (perf_info.has_value()) {
             double exec_speed = perf_info->getExecPerSec();
@@ -499,7 +499,7 @@ private:
         return state;
     }
     
-    // 选择最佳动作
+    // Select the best action
     size_t selectBestAction(const SchedulingInput& seeds) {
         auto& state_q = q_table_[current_state_];
         
@@ -518,7 +518,7 @@ private:
     }
 };
 
-// 轮询调度器
+// Round-robin scheduler
 class RoundRobinScheduler : public SchedulingAlgorithm {
 private:
     size_t current_index_ = 0;
@@ -539,11 +539,11 @@ public:
                 throw std::runtime_error("No seeds available for scheduling");
             }
             
-            // 简单轮询
+            // Simple round robin
             size_t selected_idx = current_index_ % seeds.size();
             current_index_++;
             
-            // 设置基础能量
+            // Set base energy
             EnergyInfo energy_info;
             energy_info.current_energy = 1.0;
             energy_info.base_energy = 1.0;
@@ -567,7 +567,7 @@ public:
     }
 };
 
-// 随机调度器
+// Random scheduler
 class RandomScheduler : public SchedulingAlgorithm {
 public:
     RandomScheduler() = default;
@@ -585,11 +585,11 @@ public:
                 throw std::runtime_error("No seeds available for scheduling");
             }
             
-            // 随机选择
+            // Random selection
             std::uniform_int_distribution<size_t> dist(0, seeds.size() - 1);
             size_t selected_idx = dist(random_gen_);
             
-            // 设置随机能量
+            // Set random energy
             EnergyInfo energy_info;
             std::uniform_real_distribution<double> energy_dist(0.5, 2.0);
             energy_info.current_energy = energy_dist(random_gen_);
@@ -602,16 +602,16 @@ public:
     
     void saveState(StateWriter& writer) const override {
         SchedulingAlgorithm::saveState(writer);
-        // RandomScheduler没有特殊状态需要保存
+        // RandomScheduler has no special state to save
     }
     
     void loadState(StateReader& reader) override {
         SchedulingAlgorithm::loadState(reader);
-        // RandomScheduler没有特殊状态需要加载
+        // RandomScheduler has no special state to load
     }
 };
 
-// 覆盖率引导调度器
+// Coverage-guided scheduler
 class CoverageGuidedScheduler : public SchedulingAlgorithm {
 private:
     double coverage_weight_ = 0.7;
@@ -634,7 +634,7 @@ public:
                 throw std::runtime_error("No seeds available for scheduling");
             }
             
-            // 计算每个种子的得分
+            // Compute a score for each seed
             std::vector<std::pair<size_t, double>> scores;
             
             for (size_t i = 0; i < seeds.size(); ++i) {
@@ -642,11 +642,11 @@ public:
                 scores.emplace_back(i, score);
             }
             
-            // 排序并选择得分最高的
+            // Sort and prefer highest scores
             std::sort(scores.begin(), scores.end(),
                      [](const auto& a, const auto& b) { return a.second > b.second; });
             
-            // 使用softmax选择（不总是选最好的）
+            // Softmax selection (not always the top one)
             size_t selected_idx = softmaxSelect(scores);
             
             return seeds[selected_idx];
@@ -669,18 +669,18 @@ public:
     }
     
 private:
-    double computeScore(const Seed& seed) {
-        double score = 0.0;
-        
-        // 覆盖率得分
+        double computeScore(const Seed& seed) {
+            double score = 0.0;
+            
+        // Coverage score
         double coverage_score = seed.coverage.coverage_gain * 100.0;
         coverage_score += seed.coverage.new_edges.size() * 10.0;
         coverage_score += seed.coverage.rare_edges.size() * 20.0;
         
-        // 时间得分（越新越好）
+        // Recency score (newer is better)
         auto age = std::chrono::system_clock::now() - seed.created_time;
         double age_hours = std::chrono::duration<double, std::ratio<3600>>(age).count();
-        double recency_score = std::exp(-age_hours / 24.0) * 100.0; // 24小时半衰期
+        double recency_score = std::exp(-age_hours / 24.0) * 100.0; // 24-hour half-life
         
         score = coverage_weight_ * coverage_score + recency_weight_ * recency_score;
         
@@ -691,14 +691,14 @@ private:
         std::vector<double> exp_scores;
         double sum = 0.0;
         
-        // 计算softmax
+        // Compute softmax
         for (const auto& [idx, score] : scores) {
-            double exp_score = std::exp(score / 100.0); // 温度参数100
+            double exp_score = std::exp(score / 100.0); // Temperature parameter: 100
             exp_scores.push_back(exp_score);
             sum += exp_score;
         }
         
-        // 概率选择
+        // Probabilistic selection
         std::uniform_real_distribution<double> dist(0.0, sum);
         double random_point = dist(random_gen_);
         

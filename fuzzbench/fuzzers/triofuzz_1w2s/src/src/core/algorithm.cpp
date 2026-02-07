@@ -6,14 +6,14 @@
 
 namespace triofuzz {
 
-// 算法信息比较函数
+// Algorithm compatibility check
 bool isCompatible(const AlgorithmInfo& a, const AlgorithmInfo& b) {
-    // 检查类型兼容性
+    // Check type compatibility
     if (a.type == b.type) {
-        return false; // 同类型算法通常不组合
+        return false; // Algorithms of the same type are typically not combined
     }
     
-    // 检查信息依赖
+    // Check information dependencies
     for (const auto& required : a.required_info) {
         bool found = false;
         for (const auto& provided : b.provided_info) {

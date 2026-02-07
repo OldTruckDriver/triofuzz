@@ -196,7 +196,84 @@ SpecializedThreadEngine::SpecializedThreadEngine(
     // Allocation: 1 Scheduler + (n-1) Worker/Explorer
     size_t total_threads = config_.thread_count;
 
-    if (total_threads <= 1) {
+    // Optional explicit split overrides (specialized mode only).
+    // Priority:
+    //  1) If both worker+explorer are set: use exactly those counts and
+    //     normalize total_threads to (1 + workers + explorers).
+    //  2) If only one is set: derive the other from total_threads (and
+    //     clamp to ensure at least 1 worker thread exists).
+    const bool has_worker_override = config_.worker_threads_override.has_value();
+    const bool has_explorer_override = config_.explorer_threads_override.has_value();
+    if (has_worker_override || has_explorer_override) {
+        size_t desired_workers = has_worker_override ? *config_.worker_threads_override : 0;
+        size_t desired_explorers = has_explorer_override ? *config_.explorer_threads_override : 0;
+
+        if (total_threads < 2) {
+            std::cout << "[WARNING] -threads=" << total_threads
+                      << " is too small for specialized architecture. Using 2 (1 Scheduler + 1 Worker)."
+                      << std::endl;
+            total_threads = 2;
+        }
+
+        if (has_worker_override && has_explorer_override) {
+            // Use explicit split; total thread count becomes a derived value.
+            if (desired_workers == 0) {
+                std::cout << "[WARNING] --worker-threads=0 is invalid. Using 1 worker thread." << std::endl;
+                desired_workers = 1;
+            }
+            const size_t normalized_total = 1 + desired_workers + desired_explorers;
+            if (total_threads != normalized_total) {
+                std::cout << "[WARNING] -threads=" << total_threads
+                          << " does not match (1 + --worker-threads + --explorer-threads)="
+                          << normalized_total << ". Using " << normalized_total << " threads." << std::endl;
+            }
+            total_threads = normalized_total;
+        } else if (has_worker_override) {
+            // Worker count fixed; explorers fill the remainder.
+            if (desired_workers == 0) {
+                std::cout << "[WARNING] --worker-threads=0 is invalid. Using 1 worker thread." << std::endl;
+                desired_workers = 1;
+            }
+            if (total_threads <= 1 + desired_workers) {
+                desired_explorers = 0;
+                const size_t expanded_total = 1 + desired_workers + desired_explorers;
+                if (total_threads != expanded_total) {
+                    std::cout << "[WARNING] -threads=" << total_threads
+                              << " is smaller than (1 + --worker-threads)=" << expanded_total
+                              << ". Using " << expanded_total << " threads." << std::endl;
+                }
+                total_threads = expanded_total;
+            } else {
+                desired_explorers = total_threads - 1 - desired_workers;
+            }
+        } else {  // has_explorer_override only
+            // Explorer count fixed; workers fill the remainder (must be >=1).
+            if (total_threads <= 1 + desired_explorers) {
+                desired_workers = 1;
+                const size_t expanded_total = 1 + desired_workers + desired_explorers;
+                std::cout << "[WARNING] -threads=" << total_threads
+                          << " is smaller than (1 + --explorer-threads + 1 worker)=" << expanded_total
+                          << ". Using " << expanded_total << " threads." << std::endl;
+                total_threads = expanded_total;
+            } else {
+                desired_workers = total_threads - 1 - desired_explorers;
+                if (desired_workers == 0) {
+                    desired_workers = 1;
+                    total_threads = 1 + desired_workers + desired_explorers;
+                    std::cout << "[WARNING] Specialized architecture requires at least 1 worker. "
+                              << "Using workers=1, explorers=" << desired_explorers
+                              << " (threads=" << total_threads << ")." << std::endl;
+                }
+            }
+        }
+
+        num_workers_ = desired_workers;
+        num_explorers_ = desired_explorers;
+        config_.thread_count = total_threads;
+        std::cout << "[SpecializedThreadEngine] Using explicit thread split: "
+                  << "workers=" << num_workers_ << ", explorers=" << num_explorers_
+                  << " (threads=" << config_.thread_count << ")" << std::endl;
+    } else if (total_threads <= 1) {
         // Minimum 2 threads needed (1 Scheduler + 1 Worker)
         num_workers_ = 1;
         num_explorers_ = 0;

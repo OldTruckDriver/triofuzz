@@ -149,7 +149,7 @@ void AlgorithmCombinationManager::initializeAlgorithmMetadata() {
         {"smart_format", "runtime_dictionary"}, {}, {}, {}
     };
 
-    // 添加更多常用算法
+	    // Add more commonly used algorithms
     algorithm_registry_["cmplog"] = {
         "cmplog", ExtendedAlgorithmType::ADVANCED_MUTATION,
         {true, true, true, true, false, 2.5, 1.5, 0.8},
@@ -176,7 +176,7 @@ void AlgorithmCombinationManager::initializeAlgorithmMetadata() {
         {"havoc"}, {}, {}, {}
     };
 
-    algorithm_registry_["libfuzzer"] = algorithm_registry_["classic_libfuzzer"]; // 别名
+	    algorithm_registry_["libfuzzer"] = algorithm_registry_["classic_libfuzzer"]; // Alias
 
     algorithm_registry_["rare_branch"] = {
         "rare_branch", ExtendedAlgorithmType::ADVANCED_MUTATION,

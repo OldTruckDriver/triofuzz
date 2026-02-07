@@ -16,41 +16,41 @@ SchedulingOutput RareEdgeScheduler::execute(const SchedulingInput& seeds, Shared
             throw std::runtime_error("No seeds available for rare edge scheduling");
         }
         
-        // 更新全局统计
+        // Update global statistics
         updateGlobalStats(seeds);
         
-        // 如果执行次数不足，使用随机调度
+        // If total executions are insufficient, use random scheduling
         if (total_executions_ < params_.min_executions) {
             std::uniform_int_distribution<size_t> dist(0, seeds.size() - 1);
             size_t selected_idx = dist(random_gen_);
             
-            // 更新统计信息
+            // Update statistics
             total_executions_++;
             updateEdgeStats(seeds[selected_idx].coverage, selected_idx);
             
             return seeds[selected_idx];
         }
         
-        // 更新边频率
+        // Update edge frequencies
         updateEdgeFrequencies();
         
-        // 获取包含稀有边的种子
+        // Get seeds that contain rare edges
         auto rare_edge_seeds = getSeedsWithRareEdges(seeds);
         
         size_t selected_idx;
         if (!rare_edge_seeds.empty()) {
-            // 优先从稀有边种子中选择
+            // Prefer selecting from rare-edge seeds
             selected_idx = selectByRareEdgeProbability(seeds);
         } else {
-            // 没有稀有边种子时，选择最有潜力的种子
+            // If there are no rare-edge seeds, pick the most promising seed
             selected_idx = selectBestRareEdgeSeed(seeds);
         }
         
-        // 更新统计
+        // Update statistics
         total_executions_++;
         updateEdgeStats(seeds[selected_idx].coverage, selected_idx);
         
-        // 更新上下文
+        // Update context
         SchedulingInfo scheduling_info;
         scheduling_info.selected_seed_index = selected_idx;
         scheduling_info.rare_edge_count = getRareEdgeCount();
@@ -71,7 +71,7 @@ void RareEdgeScheduler::updateGlobalStats(const std::vector<Seed>& seeds) {
 void RareEdgeScheduler::updateEdgeStats(const CoverageInfo& coverage, size_t seed_idx) {
     auto now = std::chrono::system_clock::now();
     
-    // 更新覆盖的边统计
+    // Update covered-edge statistics
     for (uint64_t edge_id : coverage.covered_edges) {
         auto& stats = global_edge_stats_[edge_id];
         stats.edge_id = edge_id;
@@ -84,7 +84,7 @@ void RareEdgeScheduler::updateEdgeStats(const CoverageInfo& coverage, size_t see
         }
     }
     
-    // 更新稀有边统计
+    // Update rare-edge statistics
     for (uint64_t edge_id : coverage.rare_edges) {
         auto& stats = global_edge_stats_[edge_id];
         stats.edge_id = edge_id;
@@ -97,7 +97,7 @@ void RareEdgeScheduler::updateEdgeStats(const CoverageInfo& coverage, size_t see
         }
     }
     
-    // 失效缓存
+    // Invalidate cache
     invalidateCache();
 }
 
@@ -140,7 +140,7 @@ std::set<size_t> RareEdgeScheduler::getSeedsWithRareEdges(const std::vector<Seed
     for (size_t i = 0; i < seeds.size(); ++i) {
         const auto& seed = seeds[i];
         
-        // 检查种子是否包含稀有边
+        // Check whether the seed contains rare edges
         for (uint64_t edge_id : seed.coverage.rare_edges) {
             if (std::find(rare_edges.begin(), rare_edges.end(), edge_id) != rare_edges.end()) {
                 rare_edge_seeds.insert(i);
@@ -148,7 +148,7 @@ std::set<size_t> RareEdgeScheduler::getSeedsWithRareEdges(const std::vector<Seed
             }
         }
         
-        // 检查种子覆盖的边中是否有稀有边
+        // Check whether any covered edges are rare
         for (uint64_t edge_id : seed.coverage.covered_edges) {
             if (std::find(rare_edges.begin(), rare_edges.end(), edge_id) != rare_edges.end()) {
                 rare_edge_seeds.insert(i);
@@ -161,8 +161,8 @@ std::set<size_t> RareEdgeScheduler::getSeedsWithRareEdges(const std::vector<Seed
 }
 
 double RareEdgeScheduler::calculateRareEdgeScore(const Seed& seed) const {
-    // 检查缓存
-    // 使用简单的哈希计算方法避免std::hash问题
+    // Check cache
+    // Use a simple hash to avoid std::hash issues
     size_t seed_hash = 0;
     for (size_t i = 0; i < seed.data.size(); ++i) {
         seed_hash = seed_hash * 31 + seed.data[i];
@@ -174,28 +174,28 @@ double RareEdgeScheduler::calculateRareEdgeScore(const Seed& seed) const {
     
     double score = 0.0;
     
-    // 基础覆盖率分数
+    // Base coverage score
     score += seed.coverage.coverage_gain * 5.0;
     
-    // 稀有边奖励
+    // Rare-edge bonus
     for (uint64_t edge_id : seed.coverage.rare_edges) {
         score += calculateEdgeRarityBonus(edge_id);
     }
     
-    // 覆盖边中的稀有边奖励
+    // Rare-edge bonus among covered edges
     for (uint64_t edge_id : seed.coverage.covered_edges) {
         if (isRareEdge(edge_id)) {
             score += calculateEdgeRarityBonus(edge_id);
         }
     }
     
-    // 新鲜度奖励
+    // Freshness bonus
     score += calculateFreshnessBonus(seed);
     
-    // 路径深度奖励（适度）
+    // Path depth bonus (moderate)
     score += std::log(1.0 + seed.coverage.path_depth) * 2.0;
     
-    // 缓存结果
+    // Cache result
     seed_score_cache_[seed_hash] = score;
     
     return score;
@@ -216,7 +216,7 @@ double RareEdgeScheduler::calculateEdgeRarityBonus(uint64_t edge_id) const {
         bonus = params_.rare_edge_bonus;
     }
     
-    // 根据频率调整奖励（频率越低奖励越高）
+    // Adjust bonus by frequency (lower frequency => higher bonus)
     if (stats.hit_frequency > 0) {
         bonus *= (1.0 / stats.hit_frequency);
     }
@@ -228,7 +228,7 @@ double RareEdgeScheduler::calculateFreshnessBonus(const Seed& seed) const {
     auto now = std::chrono::system_clock::now();
     auto age = std::chrono::duration_cast<std::chrono::hours>(now - seed.created_time);
     
-    // 新种子获得奖励，24小时内线性衰减
+    // New seeds get a bonus that linearly decays over 24 hours
     double hours = age.count();
     if (hours < 24.0) {
         return params_.fresh_rare_bonus * (1.0 - hours / 24.0);
@@ -255,11 +255,11 @@ size_t RareEdgeScheduler::selectBestRareEdgeSeed(const std::vector<Seed>& seeds)
 size_t RareEdgeScheduler::selectByRareEdgeProbability(const std::vector<Seed>& seeds) {
     auto probabilities = calculateRareEdgeProbabilities(seeds);
     
-    // 轮盘赌选择
+    // Roulette-wheel selection
     double total_prob = std::accumulate(probabilities.begin(), probabilities.end(), 0.0);
     
     if (total_prob <= 0.0) {
-        // 回退到最佳种子选择
+        // Fall back to best-seed selection
         return selectBestRareEdgeSeed(seeds);
     }
     
@@ -281,10 +281,10 @@ std::vector<double> RareEdgeScheduler::calculateRareEdgeProbabilities(const std:
     std::vector<double> probabilities;
     probabilities.reserve(seeds.size());
     
-    // 计算每个种子的稀有边分数
+    // Compute each seed's rare-edge score
     for (const auto& seed : seeds) {
         double prob = calculateRareEdgeScore(seed);
-        probabilities.push_back(std::max(0.1, prob)); // 最小概率0.1
+        probabilities.push_back(std::max(0.1, prob)); // Minimum probability: 0.1
     }
     
     return probabilities;
@@ -346,7 +346,7 @@ void RareEdgeScheduler::invalidateCache() const {
 }
 
 bool RareEdgeScheduler::isCacheValid() const {
-    // 简单的缓存有效性检查
+    // Simple cache validity check
     return !seed_score_cache_.empty();
 }
 
@@ -371,12 +371,12 @@ void RareEdgeScheduler::updateParameters(const Parameters& params) {
     auto fresh_rare_bonus = params.get<double>("fresh_rare_bonus");
     if (fresh_rare_bonus.has_value()) params_.fresh_rare_bonus = fresh_rare_bonus.value();
     
-    // 失效缓存
+    // Invalidate cache
     invalidateCache();
 }
 
 void RareEdgeScheduler::saveState(StateWriter& writer) const {
-    // 保存参数
+    // Save parameters
     writer.writeDouble("rare_threshold", params_.rare_threshold);
     writer.writeDouble("ultra_rare_threshold", params_.ultra_rare_threshold);
     writer.writeInt("min_executions", params_.min_executions);
@@ -384,14 +384,14 @@ void RareEdgeScheduler::saveState(StateWriter& writer) const {
     writer.writeDouble("ultra_rare_bonus", params_.ultra_rare_bonus);
     writer.writeDouble("fresh_rare_bonus", params_.fresh_rare_bonus);
     
-    // 保存统计信息
+    // Save statistics
     writer.writeInt("total_executions", total_executions_);
     writer.writeInt("cache_generation", cache_generation_);
     
-    // 保存边统计（简化版本，只保存关键信息）
+    // Save edge statistics (simplified; only key fields)
     std::vector<uint8_t> edge_stats_data;
     for (const auto& [edge_id, stats] : global_edge_stats_) {
-        // 序列化边统计信息（简化）
+        // Serialize edge stats (simplified)
         edge_stats_data.insert(edge_stats_data.end(), 
                               reinterpret_cast<const uint8_t*>(&edge_id),
                               reinterpret_cast<const uint8_t*>(&edge_id) + sizeof(edge_id));
@@ -403,7 +403,7 @@ void RareEdgeScheduler::saveState(StateWriter& writer) const {
 }
 
 void RareEdgeScheduler::loadState(StateReader& reader) {
-    // 加载参数
+    // Load parameters
     auto rare_threshold = reader.readDouble("rare_threshold");
     if (rare_threshold.has_value()) params_.rare_threshold = rare_threshold.value();
     
@@ -422,14 +422,14 @@ void RareEdgeScheduler::loadState(StateReader& reader) {
     auto fresh_rare_bonus = reader.readDouble("fresh_rare_bonus");
     if (fresh_rare_bonus.has_value()) params_.fresh_rare_bonus = fresh_rare_bonus.value();
     
-    // 加载统计信息
+    // Load statistics
     auto total_executions = reader.readInt("total_executions");
     if (total_executions.has_value()) total_executions_ = total_executions.value();
     
     auto cache_generation = reader.readInt("cache_generation");
     if (cache_generation.has_value()) cache_generation_ = cache_generation.value();
     
-    // 加载边统计（简化版本）
+    // Load edge statistics (simplified)
     auto edge_stats_data = reader.readBytes("edge_stats");
     if (edge_stats_data.has_value()) {
         const auto& data = edge_stats_data.value();
@@ -451,7 +451,7 @@ void RareEdgeScheduler::loadState(StateReader& reader) {
         }
     }
     
-    // 重新计算频率
+    // Recompute frequencies
     updateEdgeFrequencies();
 }
 

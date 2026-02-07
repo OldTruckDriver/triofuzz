@@ -9,26 +9,26 @@
 
 namespace triofuzz {
 
-// 自适应算法选择器 - 通用的算法效果追踪和选择
+// Adaptive algorithm selector - generic tracking and selection based on effectiveness
 class AdaptiveAlgorithmSelector {
 private:
-    // 算法性能追踪
+    // Algorithm performance tracking
     struct AlgorithmPerformance {
         size_t total_uses = 0;
-        size_t coverage_contributions = 0;  // 产生新覆盖的次数
-        size_t crash_contributions = 0;     // 发现crash的次数
-        double total_coverage_gain = 0.0;   // 总覆盖率增益
-        std::deque<double> recent_rewards;  // 最近N次的奖励
+        size_t coverage_contributions = 0;  // Times new coverage was produced
+        size_t crash_contributions = 0;     // Times crashes were found
+        double total_coverage_gain = 0.0;   // Total coverage gain
+        std::deque<double> recent_rewards;  // Rewards of the last N runs
         size_t window_size = 100;
 
-        // 计算算法的当前效率分数
+        // Compute the algorithm's current efficiency score
         double getEfficiencyScore() const {
-            if (total_uses == 0) return 1.0;  // 未使用的算法给高分鼓励尝试
+            if (total_uses == 0) return 1.0;  // Encourage exploration for unused algorithms
 
-            // 基础成功率
+            // Base success rate
             double success_rate = (double)(coverage_contributions + crash_contributions) / total_uses;
 
-            // 最近表现（指数移动平均）
+            // Recent performance (exponential moving average)
             double recent_avg = 0.0;
             if (!recent_rewards.empty()) {
                 double weight = 1.0;
@@ -36,12 +36,12 @@ private:
                 for (auto it = recent_rewards.rbegin(); it != recent_rewards.rend(); ++it) {
                     recent_avg += (*it) * weight;
                     weight_sum += weight;
-                    weight *= 0.95;  // 衰减因子
+                    weight *= 0.95;  // Decay factor
                 }
                 recent_avg /= weight_sum;
             }
 
-            // 综合分数：70%历史成功率 + 30%最近表现
+            // Combined score: 70% historical success rate + 30% recent performance
             return 0.7 * success_rate + 0.3 * recent_avg;
         }
 
@@ -58,17 +58,17 @@ private:
         }
     };
 
-    // 每个算法的性能数据
+    // Performance data per algorithm
     std::map<std::string, AlgorithmPerformance> algorithm_performance_;
 
-    // 算法分类（基于特性）
+    // Algorithm categories (by characteristics)
     enum class AlgorithmType {
-        RANDOM,       // 随机变异: havoc, splice
-        DETERMINISTIC, // 确定性: bitflip, arithmetic
-        GRADIENT,     // 梯度引导: angora_gradient_descent, neuzz
-        STRUCTURAL,   // 结构感知: dictionary, smart_format
-        COVERAGE,     // 覆盖引导: fairfuzz, afl_plus_plus
-        TARGETED      // 定向: aflgo, rare_edge
+        RANDOM,       // Random mutations: havoc, splice
+        DETERMINISTIC, // Deterministic: bitflip, arithmetic
+        GRADIENT,     // Gradient-guided: angora_gradient_descent, neuzz
+        STRUCTURAL,   // Structure-aware: dictionary, smart_format
+        COVERAGE,     // Coverage-guided: fairfuzz, afl_plus_plus
+        TARGETED      // Targeted: aflgo, rare_edge
     };
 
     std::map<std::string, AlgorithmType> algorithm_types_ = {
@@ -88,35 +88,35 @@ private:
         {"rare_edge_scheduler", AlgorithmType::TARGETED}
     };
 
-    // 算法类型的性能追踪
+    // Performance tracking per algorithm type
     std::map<AlgorithmType, double> type_performance_;
 
-    // 运行时特征检测
+    // Runtime characteristic detection
     struct RuntimeCharacteristics {
-        bool has_deep_branches = false;      // 深层分支
-        bool has_numeric_comparisons = false; // 数值比较
-        bool has_structured_input = false;   // 结构化输入
-        bool has_rare_edges = false;         // 稀有边
-        bool is_stagnant = false;           // 覆盖率停滞
-        double coverage_velocity = 0.0;      // 覆盖率增长速度
+        bool has_deep_branches = false;       // Deep branches
+        bool has_numeric_comparisons = false; // Numeric comparisons
+        bool has_structured_input = false;    // Structured input
+        bool has_rare_edges = false;          // Rare edges
+        bool is_stagnant = false;             // Coverage stagnation
+        double coverage_velocity = 0.0;       // Coverage growth velocity
         size_t execution_count = 0;
 
         void update(double coverage_gain, size_t new_edges, size_t rare_edges_count) {
             execution_count++;
 
-            // 更新覆盖率速度（指数移动平均）
+            // Update coverage velocity (exponential moving average)
             coverage_velocity = 0.9 * coverage_velocity + 0.1 * coverage_gain;
 
-            // 检测停滞
+            // Detect stagnation
             is_stagnant = (coverage_velocity < 0.001 && execution_count > 10000);
 
-            // 检测稀有边
+            // Detect rare edges
             has_rare_edges = (rare_edges_count > 0);
 
-            // 简单的启发式检测
+            // Simple heuristic detection
             if (execution_count > 1000) {
-                // 如果某些算法特别有效，推断输入特征
-                // 这会在下面的updateCharacteristics中完成
+                // If certain algorithms are especially effective, infer input characteristics.
+                // This is handled in inferProgramCharacteristics() below.
             }
         }
     };
@@ -124,23 +124,23 @@ private:
     RuntimeCharacteristics runtime_chars_;
 
 public:
-    // 获取下一批算法组合（自适应选择）
+    // Get the next batch of algorithms (adaptive selection)
     std::vector<std::string> selectAlgorithms(size_t count = 3) {
         std::vector<std::string> selected;
 
-        // Step 1: 根据运行时特征调整算法权重
+        // Step 1: Adjust algorithm weights based on runtime characteristics
         std::map<std::string, double> adjusted_scores;
 
         for (const auto& [algo_name, perf] : algorithm_performance_) {
             double score = perf.getEfficiencyScore();
 
-            // 根据算法类型和运行时特征调整分数
+            // Adjust score based on algorithm type and runtime characteristics
             if (algorithm_types_.count(algo_name)) {
                 AlgorithmType type = algorithm_types_[algo_name];
                 score *= getTypeMultiplier(type);
             }
 
-            // 探索奖励：少用的算法获得加成
+            // Exploration bonus: rarely used algorithms get a boost
             if (perf.total_uses < 100) {
                 score *= 1.5;
             }
@@ -148,29 +148,29 @@ public:
             adjusted_scores[algo_name] = score;
         }
 
-        // Step 2: 选择算法（兼顾利用和探索）
+        // Step 2: Select algorithms (balance exploitation and exploration)
         std::vector<std::pair<std::string, double>> candidates;
         for (const auto& [name, score] : adjusted_scores) {
             candidates.emplace_back(name, score);
         }
 
-        // 按分数排序
+        // Sort by score
         std::sort(candidates.begin(), candidates.end(),
             [](const auto& a, const auto& b) { return a.second > b.second; });
 
-        // 选择算法：80%概率选最优，20%随机探索
+        // Selection: 80% choose the best, 20% random exploration
         for (size_t i = 0; i < count && i < candidates.size(); ++i) {
             if (i == 0 || (rand() % 100) < 80) {
-                // 选择高分算法
+                // Pick a high-scoring algorithm
                 selected.push_back(candidates[i].first);
             } else {
-                // 随机探索
+                // Random exploration
                 size_t random_idx = rand() % candidates.size();
                 selected.push_back(candidates[random_idx].first);
             }
         }
 
-        // 如果没有足够的候选，添加默认算法
+        // If there aren't enough candidates, add default algorithms
         if (selected.empty()) {
             selected = {"havoc", "bitflip", "arithmetic"};
         }
@@ -178,81 +178,81 @@ public:
         return selected;
     }
 
-    // 记录算法执行结果
+    // Record algorithm execution result
     void recordAlgorithmResult(const std::string& algorithm,
                                double reward,
                                bool found_coverage,
                                bool found_crash) {
         algorithm_performance_[algorithm].recordReward(reward, found_coverage, found_crash);
 
-        // 更新算法类型性能
+        // Update algorithm type performance
         if (algorithm_types_.count(algorithm)) {
             AlgorithmType type = algorithm_types_[algorithm];
             type_performance_[type] = 0.9 * type_performance_[type] + 0.1 * reward;
         }
     }
 
-    // 更新运行时特征
+    // Update runtime characteristics
     void updateRuntimeCharacteristics(double coverage_gain, size_t new_edges, size_t rare_edges) {
         runtime_chars_.update(coverage_gain, new_edges, rare_edges);
 
-        // 基于算法效果推断程序特征
+        // Infer program characteristics based on algorithm effectiveness
         inferProgramCharacteristics();
     }
 
-    // 获取推荐的算法组合模式
+    // Get recommended composition mode
     std::string getRecommendedMode() {
         if (runtime_chars_.is_stagnant) {
-            return "sequential";  // 停滞时用顺序执行深入探索
+            return "sequential";  // Use sequential execution for deeper exploration when stagnant
         } else if (runtime_chars_.coverage_velocity > 0.01) {
-            return "parallel";    // 快速增长时并行探索
+            return "parallel";    // Explore in parallel during rapid growth
         } else {
-            return "weighted";    // 一般情况用加权组合
+            return "weighted";    // Use weighted composition in general cases
         }
     }
 
 private:
-    // 根据运行时特征获取算法类型的权重倍数
+    // Get type weight multipliers based on runtime characteristics
     double getTypeMultiplier(AlgorithmType type) {
         double multiplier = 1.0;
 
         switch (type) {
             case AlgorithmType::DETERMINISTIC:
-                // 停滞时加强确定性变异
+                // Boost deterministic mutations when stagnant
                 if (runtime_chars_.is_stagnant) multiplier *= 2.0;
-                // 有数值比较时也加强
+                // Also boost when numeric comparisons exist
                 if (runtime_chars_.has_numeric_comparisons) multiplier *= 1.5;
                 break;
 
             case AlgorithmType::GRADIENT:
-                // 深层分支时使用梯度方法
+                // Use gradient methods when deep branches exist
                 if (runtime_chars_.has_deep_branches) multiplier *= 2.5;
-                // 停滞时也有用
+                // Also useful during stagnation
                 if (runtime_chars_.is_stagnant) multiplier *= 1.5;
                 break;
 
             case AlgorithmType::STRUCTURAL:
-                // 结构化输入时加强
+                // Boost for structured inputs
                 if (runtime_chars_.has_structured_input) multiplier *= 3.0;
                 break;
 
             case AlgorithmType::TARGETED:
-                // 有稀有边时加强
+                // Boost when rare edges exist
                 if (runtime_chars_.has_rare_edges) multiplier *= 2.0;
                 break;
 
             case AlgorithmType::COVERAGE:
-                // 一般情况下都有用
+                // Generally useful
                 multiplier *= 1.2;
                 break;
 
             case AlgorithmType::RANDOM:
-                // 早期探索阶段加强
+                // Boost during early exploration
                 if (runtime_chars_.execution_count < 100000) multiplier *= 1.3;
                 break;
         }
 
-        // 基于历史性能调整
+        // Adjust based on historical performance
         if (type_performance_.count(type) && type_performance_[type] > 0.5) {
             multiplier *= (1.0 + type_performance_[type]);
         }
@@ -260,27 +260,27 @@ private:
         return multiplier;
     }
 
-    // 基于算法效果推断程序特征
+    // Infer program characteristics from algorithm effectiveness
     void inferProgramCharacteristics() {
-        // 如果arithmetic算法特别有效，可能有数值比较
+        // If the arithmetic algorithm is particularly effective, numeric comparisons may exist.
         if (algorithm_performance_["arithmetic"].getEfficiencyScore() > 0.3) {
             runtime_chars_.has_numeric_comparisons = true;
         }
 
-        // 如果dictionary算法有效，可能是结构化输入
+        // If dictionary algorithms are effective, the input may be structured.
         if (algorithm_performance_["dictionary"].getEfficiencyScore() > 0.3 ||
             algorithm_performance_["smart_dictionary"].getEfficiencyScore() > 0.3) {
             runtime_chars_.has_structured_input = true;
         }
 
-        // 如果gradient算法有效，可能有深层分支
+        // If gradient algorithms are effective, deep branches may exist.
         if (algorithm_performance_["angora_gradient_descent"].getEfficiencyScore() > 0.2) {
             runtime_chars_.has_deep_branches = true;
         }
     }
 
 public:
-    // 获取算法性能统计（用于调试）
+    // Get algorithm performance report (for debugging)
     std::string getPerformanceReport() const {
         std::string report = "Algorithm Performance Report:\n";
 

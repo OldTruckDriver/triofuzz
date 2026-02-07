@@ -9,12 +9,12 @@ namespace triofuzz {
 AlgorithmPool::AlgorithmPool(const PoolConfig& config)
     : config_(config), registry_(AlgorithmRegistry::getInstance()) {
 
-    // 启动清理线程
+    // Start cleanup thread
     if (!config_.enable_lazy_init) {
         cleanup_thread_ = std::thread(&AlgorithmPool::cleanupThread, this);
     }
 
-    // 设置默认热门算法
+    // Set default hot algorithms
     hot_algorithms_ = {
         "havoc", "bitflip", "arithmetic", "smart_format",
         "splice", "deterministic", "libfuzzer", "afl_plus_plus", "rare_branch"
@@ -22,7 +22,7 @@ AlgorithmPool::AlgorithmPool(const PoolConfig& config)
 }
 
 AlgorithmPool::~AlgorithmPool() {
-    // 停止清理线程
+    // Stop cleanup thread
     stop_cleanup_ = true;
     cleanup_cv_.notify_all();
 
@@ -30,7 +30,7 @@ AlgorithmPool::~AlgorithmPool() {
         cleanup_thread_.join();
     }
 
-    // 清理所有池中的算法实例
+    // Clear all pooled algorithm instances
     std::lock_guard<std::mutex> lock(pool_mutex_);
     pools_.clear();
 }
@@ -39,14 +39,14 @@ void AlgorithmPool::prewarm(const std::vector<std::string>& algorithm_names) {
     std::lock_guard<std::mutex> lock(pool_mutex_);
 
     for (const auto& name : algorithm_names) {
-        // 确保池存在
+        // Ensure pool exists
         if (pools_.find(name) == pools_.end()) {
             pools_[name] = std::vector<std::shared_ptr<PooledAlgorithm>>();
         }
 
         auto& pool = pools_[name];
 
-        // 创建预热实例
+        // Create prewarmed instances
         size_t current_size = pool.size();
         size_t target_size = std::min(config_.prewarm_size, config_.max_pool_size);
 
@@ -66,7 +66,7 @@ std::shared_ptr<AlgorithmPool::PooledAlgorithm> AlgorithmPool::acquire(
 
     usage_stats_[algorithm_name].total_requests++;
 
-    // 先尝试从池中获取
+    // Try acquiring from the pool first
     auto pooled = getFromPool(algorithm_name);
     if (pooled) {
         usage_stats_[algorithm_name].hits++;
@@ -76,12 +76,12 @@ std::shared_ptr<AlgorithmPool::PooledAlgorithm> AlgorithmPool::acquire(
         return pooled;
     }
 
-    // 池中没有可用实例，创建新的
+    // No available instance in pool; create a new one
     usage_stats_[algorithm_name].misses++;
 
     std::lock_guard<std::mutex> lock(pool_mutex_);
 
-    // 再次检查（避免竞态条件）
+    // Check again (avoid race conditions)
     if (pools_.find(algorithm_name) != pools_.end()) {
         auto& pool = pools_[algorithm_name];
         for (auto& algo : pool) {
@@ -93,14 +93,14 @@ std::shared_ptr<AlgorithmPool::PooledAlgorithm> AlgorithmPool::acquire(
         }
     }
 
-    // 创建新实例
+    // Create new instance
     auto new_instance = createInstance(algorithm_name);
     if (new_instance) {
         new_instance->in_use = true;
         new_instance->use_count = 1;
         new_instance->last_used = std::chrono::steady_clock::now();
 
-        // 如果池未满，添加到池中
+        // If the pool isn't full, add it to the pool
         if (pools_[algorithm_name].size() < config_.max_pool_size) {
             pools_[algorithm_name].push_back(new_instance);
         }
@@ -117,7 +117,7 @@ void AlgorithmPool::release(std::shared_ptr<PooledAlgorithm> algorithm) {
 
     algorithm->in_use = false;
 
-    // 如果启用自动扩缩容，检查是否需要调整池大小
+    // If auto-scaling is enabled, check whether pool size should be adjusted
     if (config_.enable_auto_scaling) {
         autoScale();
     }
@@ -149,9 +149,9 @@ void AlgorithmPool::releaseBatch(std::vector<std::shared_ptr<PooledAlgorithm>>& 
 std::shared_ptr<AlgorithmPool::PooledAlgorithm> AlgorithmPool::createInstance(
     const std::string& algorithm_name) {
 
-    // 使用简单工厂模式创建算法
+    // Create algorithm using a simple factory pattern
     std::unique_ptr<AlgorithmBase> algorithm;
-    // TODO: 实现算法创建逻辑
+    // TODO: implement algorithm creation logic
     // algorithm = AlgorithmFactory::create(algorithm_name);
     if (!algorithm) {
         return nullptr;
@@ -197,7 +197,7 @@ void AlgorithmPool::adjustPoolSize(const std::string& algorithm_name, size_t new
     size_t current_size = pool.size();
 
     if (new_size > current_size) {
-        // 扩容
+        // Scale up
         for (size_t i = current_size; i < new_size && i < config_.max_pool_size; i++) {
             auto instance = createInstance(algorithm_name);
             if (instance) {
@@ -205,7 +205,7 @@ void AlgorithmPool::adjustPoolSize(const std::string& algorithm_name, size_t new
             }
         }
     } else if (new_size < current_size) {
-        // 缩容 - 移除空闲实例
+        // Scale down - remove idle instances
         pool.erase(
             std::remove_if(pool.begin(), pool.end(),
                 [](const std::shared_ptr<PooledAlgorithm>& algo) {
@@ -223,7 +223,7 @@ void AlgorithmPool::autoScale() {
         const std::string& name = pool_pair.first;
         auto& pool = pool_pair.second;
 
-        // 计算利用率
+        // Compute utilization
         size_t in_use = 0;
         for (const auto& algo : pool) {
             if (algo->in_use.load()) {
@@ -234,12 +234,12 @@ void AlgorithmPool::autoScale() {
         double utilization = pool.empty() ? 0.0 :
             static_cast<double>(in_use) / pool.size();
 
-        // 高利用率时扩容
+        // Scale up when utilization is high
         if (utilization > 0.8 && pool.size() < config_.max_pool_size) {
             size_t new_size = std::min(pool.size() * 2, config_.max_pool_size);
             adjustPoolSize(name, new_size);
         }
-        // 低利用率时缩容
+        // Scale down when utilization is low
         else if (utilization < 0.2 && pool.size() > config_.initial_pool_size) {
             size_t new_size = std::max(pool.size() / 2, config_.initial_pool_size);
             adjustPoolSize(name, new_size);
@@ -253,7 +253,7 @@ void AlgorithmPool::cleanupIdle() {
     auto now = std::chrono::steady_clock::now();
 
     for (auto& [name, pool] : pools_) {
-        // 复制名称以避免lambda捕获结构化绑定的问题
+        // Copy the name to avoid lambda capture issues with structured bindings
         std::string algorithm_name = name;
         pool.erase(
             std::remove_if(pool.begin(), pool.end(),
@@ -280,7 +280,7 @@ void AlgorithmPool::cleanupThread() {
             [this] { return stop_cleanup_.load(); });
 
         if (!stop_cleanup_) {
-            lock.unlock();  // 释放锁再执行清理
+            lock.unlock();  // Release the lock before running cleanup
             cleanupIdle();
 
             if (config_.enable_auto_scaling) {
@@ -312,7 +312,7 @@ AlgorithmPool::PoolStatus AlgorithmPool::getStatus(const std::string& algorithm_
             static_cast<double>(status.in_use_instances) / status.total_instances : 0.0;
     }
 
-    // 计算命中率
+    // Compute hit rate
     auto stats_it = usage_stats_.find(algorithm_name);
     if (stats_it != usage_stats_.end()) {
         const auto& stats = stats_it->second;
@@ -374,7 +374,7 @@ void AlgorithmPool::resetStats() {
 }
 
 
-// 全局实例
+// Global instance
 AlgorithmPool& getGlobalAlgorithmPool() {
     static AlgorithmPool instance;
     return instance;

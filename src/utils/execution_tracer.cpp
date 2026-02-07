@@ -11,7 +11,7 @@
 namespace triofuzz {
 
 // =============================================================================
-// MockTracer Implementation - 用于测试和开发
+// MockTracer Implementation - for testing and development
 // =============================================================================
 
 MockTracer::MockTracer() : random_gen_(std::random_device{}()) {}
@@ -38,7 +38,7 @@ const std::vector<ControlFlowTransfer>& MockTracer::getControlFlowTransfers() co
 std::vector<TaintTag> MockTracer::getTaintInfo(const std::vector<uint8_t>& input) {
     std::vector<TaintTag> taint_tags;
     
-    // 为输入的每个字节创建污点标记
+    // Create a taint tag for each input byte
     for (size_t i = 0; i < input.size(); ++i) {
         TaintTag tag;
         tag.input_offset = i;
@@ -85,9 +85,9 @@ void MockTracer::generateMockTraceData(const std::vector<uint8_t>& input) {
     
     std::uniform_int_distribution<uint64_t> pc_dist(0x400000, 0x500000);
     std::uniform_int_distribution<size_t> offset_dist(0, input.size() - 1);
-    std::uniform_int_distribution<int> comparison_types(0, 7); // 只使用基本比较类型
+    std::uniform_int_distribution<int> comparison_types(0, 7); // Only use basic comparison types
     
-    // 生成比较指令记录
+    // Generate comparison-instruction records
     size_t num_comparisons = std::min<size_t>(20, input.size() * 2);
     for (size_t i = 0; i < num_comparisons; ++i) {
         ComparisonEntry entry;
@@ -99,11 +99,11 @@ void MockTracer::generateMockTraceData(const std::vector<uint8_t>& input) {
         entry.function_id = entry.pc & 0xFFF000;
         entry.basic_block_id = static_cast<uint32_t>(entry.pc & 0xFFF);
         
-        // 生成操作数
+        // Generate operands
         size_t offset = offset_dist(random_gen_);
         entry.operand1 = {input[offset]};
         
-        // 生成相关的第二个操作数
+        // Generate a related second operand
         uint8_t op2_val = input[offset];
         std::uniform_int_distribution<int> mutation_dist(-5, 5);
         int delta = mutation_dist(random_gen_);
@@ -116,7 +116,7 @@ void MockTracer::generateMockTraceData(const std::vector<uint8_t>& input) {
         mock_comparisons_.push_back(entry);
     }
     
-    // 生成内存访问记录
+    // Generate memory access records
     size_t num_accesses = std::min<size_t>(50, input.size() * 3);
     for (size_t i = 0; i < num_accesses; ++i) {
         MemoryAccess access;
@@ -129,7 +129,7 @@ void MockTracer::generateMockTraceData(const std::vector<uint8_t>& input) {
         size_t offset = offset_dist(random_gen_);
         access.data = {input[offset]};
         
-        // 添加污点标记
+        // Add taint tag
         TaintTag tag;
         tag.input_offset = offset;
         tag.length = 1;
@@ -140,7 +140,7 @@ void MockTracer::generateMockTraceData(const std::vector<uint8_t>& input) {
         mock_memory_accesses_.push_back(access);
     }
     
-    // 生成控制流转移记录
+    // Generate control-flow transfer records
     size_t num_transfers = std::min<size_t>(30, input.size());
     for (size_t i = 0; i < num_transfers; ++i) {
         ControlFlowTransfer transfer;
@@ -150,7 +150,7 @@ void MockTracer::generateMockTraceData(const std::vector<uint8_t>& input) {
         transfer.branch_taken = (input[i % input.size()] & 1) == 1;
         transfer.timestamp = i;
         
-        // 为条件分支添加污点信息
+        // Attach taint info for conditional branches
         if (transfer.is_conditional) {
             TaintTag tag;
             tag.input_offset = i % input.size();
@@ -165,7 +165,7 @@ void MockTracer::generateMockTraceData(const std::vector<uint8_t>& input) {
 }
 
 // =============================================================================
-// PinBasedTracer Implementation - 基础实现
+// PinBasedTracer Implementation - basic implementation
 // =============================================================================
 
 PinBasedTracer::PinBasedTracer() : taint_tracking_enabled_(false) {}
@@ -175,19 +175,19 @@ PinBasedTracer::~PinBasedTracer() {
 }
 
 bool PinBasedTracer::initialize() {
-    // 检查PIN工具是否可用
+    // Check whether the PIN tool is available
     if (pin_tool_path_.empty()) {
-        pin_tool_path_ = "/opt/pin/pin";  // 默认路径
+        pin_tool_path_ = "/opt/pin/pin";  // Default path
     }
     
     if (pintool_so_path_.empty()) {
-        pintool_so_path_ = "./pintool/collafuzz_tracer.so";  // 默认工具
+        pintool_so_path_ = "./pintool/collafuzz_tracer.so";  // Default tool
     }
     
-    // 检查文件是否存在
+    // Check whether the file exists
     std::ifstream pin_check(pin_tool_path_);
     if (!pin_check.good()) {
-        return false;  // PIN不可用，回退到模拟模式
+        return false;  // PIN unavailable; fall back to mock mode
     }
     
     return true;
@@ -208,17 +208,17 @@ bool PinBasedTracer::executeWithTracing(const std::vector<uint8_t>& input,
                                        std::chrono::milliseconds timeout) {
     clearTraceData();
     
-    // 创建临时文件
+    // Create temporary file
     std::string trace_file = "/tmp/collafuzz_trace_" + std::to_string(getpid()) + ".txt";
     
-    // 启动PIN工具
+    // Launch PIN tool
     bool success = launchPinTool(input, trace_file, timeout);
     
     if (success) {
         success = parseTraceOutput(trace_file);
     }
     
-    // 清理临时文件
+    // Clean up temporary file
     std::remove(trace_file.c_str());
     
     return success;
@@ -244,7 +244,7 @@ void PinBasedTracer::enableTaintTracking(bool enable) {
 }
 
 std::vector<TaintTag> PinBasedTracer::getTaintInfo(const std::vector<uint8_t>& input) {
-    // 简化实现：为所有输入字节创建污点标记
+    // Simplified: create taint tags for all input bytes
     std::vector<TaintTag> taint_tags;
     for (size_t i = 0; i < input.size(); ++i) {
         TaintTag tag;
@@ -294,7 +294,7 @@ void PinBasedTracer::setPinToolPath(const std::string& pin_path, const std::stri
 bool PinBasedTracer::launchPinTool(const std::vector<uint8_t>& input, 
                                   const std::string& output_file,
                                   std::chrono::milliseconds timeout) {
-    // 创建输入文件
+    // Create input file
     std::string input_file = output_file + ".input";
     std::ofstream ofs(input_file, std::ios::binary);
     if (!ofs.is_open()) {
@@ -303,7 +303,7 @@ bool PinBasedTracer::launchPinTool(const std::vector<uint8_t>& input,
     ofs.write(reinterpret_cast<const char*>(input.data()), input.size());
     ofs.close();
     
-    // 构建PIN命令
+    // Build PIN command
     std::ostringstream cmd;
     cmd << pin_tool_path_ << " -t " << pintool_so_path_;
     cmd << " -o " << output_file;
@@ -315,12 +315,12 @@ bool PinBasedTracer::launchPinTool(const std::vector<uint8_t>& input,
         cmd << " " << arg;
     }
     cmd << " < " << input_file;
-    cmd << " 2>/dev/null";  // 抑制错误输出
+    cmd << " 2>/dev/null";  // Suppress stderr output
     
-    // 执行命令
+    // Execute command
     int result = std::system(cmd.str().c_str());
     
-    // 清理输入文件
+    // Clean up input file
     std::remove(input_file.c_str());
     
     return (result == 0);
@@ -343,7 +343,7 @@ bool PinBasedTracer::parseTraceOutput(const std::string& trace_file) {
         std::smatch match;
         
         if (std::regex_match(line, match, cmp_pattern)) {
-            // 解析比较指令
+            // Parse comparison instruction
             ComparisonEntry entry;
             entry.pc = std::stoull(match[1].str(), nullptr, 16);
             
@@ -352,7 +352,7 @@ bool PinBasedTracer::parseTraceOutput(const std::string& trace_file) {
             entry.result = (match[4].str() == "1");
             entry.timestamp = std::stoull(match[5].str());
             
-            // 解析操作数（简化处理，假设是十六进制字节）
+            // Parse operands (simplified; assume hex bytes)
             for (size_t i = 0; i < op1_str.length(); i += 2) {
                 entry.operand1.push_back(static_cast<uint8_t>(
                     std::stoul(op1_str.substr(i, 2), nullptr, 16)));
@@ -372,15 +372,15 @@ bool PinBasedTracer::parseTraceOutput(const std::string& trace_file) {
             covered_basic_blocks_.insert(entry.pc);
             
         } else if (std::regex_match(line, match, mem_pattern)) {
-            // 解析内存访问
+            // Parse memory access
             MemoryAccess access;
             access.pc = std::stoull(match[1].str(), nullptr, 16);
             access.address = std::stoull(match[2].str(), nullptr, 16);
             access.size = std::stoull(match[3].str());
             access.is_write = (match[4].str() == "W");
-            access.timestamp = comparisons_.size();  // 简化时间戳
+            access.timestamp = comparisons_.size();  // Simplified timestamp
             
-            // 解析数据
+            // Parse data
             std::string data_str = match[5].str();
             for (size_t i = 0; i < data_str.length(); i += 2) {
                 access.data.push_back(static_cast<uint8_t>(
@@ -390,7 +390,7 @@ bool PinBasedTracer::parseTraceOutput(const std::string& trace_file) {
             memory_accesses_.push_back(access);
             
         } else if (std::regex_match(line, match, br_pattern)) {
-            // 解析分支指令
+            // Parse branch instruction
             ControlFlowTransfer transfer;
             transfer.from_pc = std::stoull(match[1].str(), nullptr, 16);
             transfer.to_pc = std::stoull(match[2].str(), nullptr, 16);
@@ -407,7 +407,7 @@ bool PinBasedTracer::parseTraceOutput(const std::string& trace_file) {
 }
 
 void PinBasedTracer::propagateTaint(const MemoryAccess& access) {
-    // 简化的污点传播实现
+    // Simplified taint propagation
     if (taint_tracking_enabled_ && !access.taint_tags.empty()) {
         memory_taint_map_[access.address] = access.taint_tags;
     }
@@ -420,12 +420,12 @@ void PinBasedTracer::updateRegisterTaint(uint32_t reg, const std::vector<TaintTa
 }
 
 void PinBasedTracer::analyzeComparison(const ComparisonEntry& entry) {
-    // 比较指令分析可以在这里扩展
-    // 目前只是存储基本信息
+    // Comparison analysis can be extended here.
+    // Currently only stores basic information.
 }
 
 // =============================================================================
-// QemuBasedTracer Implementation - 简化实现
+// QemuBasedTracer Implementation - simplified implementation
 // =============================================================================
 
 QemuBasedTracer::QemuBasedTracer() : trace_enabled_(false) {}
@@ -436,7 +436,7 @@ QemuBasedTracer::~QemuBasedTracer() {
 
 bool QemuBasedTracer::initialize() {
     if (qemu_path_.empty()) {
-        qemu_path_ = "qemu-x86_64";  // 默认路径
+        qemu_path_ = "qemu-x86_64";  // Default path
     }
     return true;
 }
@@ -500,12 +500,12 @@ std::vector<TaintTag> QemuBasedTracer::getTaintInfo(const std::vector<uint8_t>& 
 }
 
 std::vector<uint64_t> QemuBasedTracer::getCoveredBasicBlocks() const {
-    // 简化实现，返回空列表
+    // Simplified: return empty list
     return {};
 }
 
 std::vector<std::pair<uint64_t, uint64_t>> QemuBasedTracer::getCoveredEdges() const {
-    // 简化实现，返回空列表
+    // Simplified: return empty list
     return {};
 }
 
@@ -523,14 +523,14 @@ void QemuBasedTracer::setQemuPath(const std::string& qemu_path) {
 bool QemuBasedTracer::launchQemuTrace(const std::vector<uint8_t>& input,
                                      const std::string& output_file,
                                      std::chrono::milliseconds timeout) {
-    // QEMU跟踪实现比较复杂，这里提供基础框架
-    // 实际使用中需要根据具体需求定制QEMU插件
-    return false;  // 暂时不实现
+    // QEMU tracing is more complex; this is only a basic skeleton.
+    // In practice, customize a QEMU plugin based on your needs.
+    return false;  // Not implemented yet
 }
 
 bool QemuBasedTracer::parseQemuTraceOutput(const std::string& trace_file) {
-    // QEMU跟踪输出解析
-    return false;  // 暂时不实现
+    // Parse QEMU trace output
+    return false;  // Not implemented yet
 }
 
 // =============================================================================
@@ -550,19 +550,19 @@ std::unique_ptr<ExecutionTracer> TracerFactory::createTracer(TracerType type) {
 }
 
 std::unique_ptr<ExecutionTracer> TracerFactory::createBestAvailableTracer() {
-    // 尝试创建PIN跟踪器
+    // Try creating a PIN tracer
     auto pin_tracer = std::make_unique<PinBasedTracer>();
     if (pin_tracer->initialize()) {
         return std::move(pin_tracer);
     }
     
-    // 回退到QEMU跟踪器
+    // Fall back to QEMU tracer
     auto qemu_tracer = std::make_unique<QemuBasedTracer>();
     if (qemu_tracer->initialize()) {
         return std::move(qemu_tracer);
     }
     
-    // 最终回退到模拟跟踪器
+    // Final fallback: mock tracer
     return std::make_unique<MockTracer>();
 }
 
@@ -669,7 +669,7 @@ std::vector<TaintTag> propagateTaintTags(const std::vector<TaintTag>& input_tags
                                         const std::vector<uint8_t>& operation_result) {
     std::vector<TaintTag> output_tags;
     
-    // 简化传播：保持输入污点标记
+    // Simplified propagation: keep input taint tags
     for (const auto& tag : input_tags) {
         if (tag.is_active && tag.input_offset < operation_result.size()) {
             output_tags.push_back(tag);
@@ -708,7 +708,7 @@ std::vector<std::string> extractConstraints(const std::vector<ComparisonEntry>& 
                 constraint << "> " << extractInteger(cmp.operand2, true);
                 break;
             default:
-                continue;  // 跳过不支持的类型
+                continue;  // Skip unsupported types
         }
         
         constraints.push_back(constraint.str());

@@ -4,7 +4,7 @@
 namespace triofuzz {
 // Only implement methods that are not already defined in the header
 
-// 静态成员定义
+// Static member definitions
 std::unique_ptr<AlgorithmRegistry> AlgorithmRegistry::instance_ = nullptr;
 std::mutex AlgorithmRegistry::instance_mutex_;
 }

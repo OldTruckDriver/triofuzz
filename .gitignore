@@ -1,0 +1,6 @@
+# Hidden files and directories
+.*
+
+# But keep .gitignore itself
+!.gitignore
+build/
