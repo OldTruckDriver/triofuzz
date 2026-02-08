@@ -1,6 +1,6 @@
 # fuzzers/triofuzz/builder.Dockerfile
 # TrioFuzz - Unified Multi-Algorithm Fuzzer
-# Integrates XFuzz Thompson Sampling + MOpt PSO + MuoFuzz Markov Chain
+# Integrates Thompson Sampling + EcoFuzz MAB + MOpt PSO + MuoFuzz Markov Chain
 
 ARG parent_image
 FROM $parent_image
