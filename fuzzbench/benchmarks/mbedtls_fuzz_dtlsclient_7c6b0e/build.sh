@@ -15,13 +15,25 @@
 #
 ################################################################################
 
-pip3 install -r $SRC/mbedtls/scripts/basic.requirements.txt
+# Use the same python3 that cmake will find, so jsonschema & friends land in
+# the interpreter that runs mbedtls's generator scripts (base-builder ships
+# both python3.10 and python3.11 and `pip3` may resolve to a different one
+# than cmake's Python3_EXECUTABLE).
+PY3="$(command -v python3)"
+"$PY3" -m pip install -r $SRC/mbedtls/scripts/basic.requirements.txt
 
 # build project
 perl scripts/config.pl set MBEDTLS_PLATFORM_TIME_ALT
 mkdir build
 cd build
-cmake -DENABLE_TESTING=OFF ..
+# -Wno-error: demote mbedtls's -Werror so unknown warning names injected by its
+#   CMake (e.g. GCC-15's -Werror=unterminated-string-initialization) don't fail
+#   clang coverage/asan builds.
+# -Wno-unknown-warning-option: silence clang's own -Wunknown-warning-option for
+#   the same GCC-15-only flags.
+export CFLAGS="${CFLAGS:-} -Wno-error -Wno-unknown-warning-option"
+export CXXFLAGS="${CXXFLAGS:-} -Wno-error -Wno-unknown-warning-option"
+cmake -DENABLE_TESTING=OFF -DPython3_EXECUTABLE="$PY3" -DCMAKE_C_FLAGS="$CFLAGS" -DCMAKE_CXX_FLAGS="$CXXFLAGS" ..
 # build including fuzzers
 make -j$(nproc) all
 cp programs/fuzz/fuzz_* $OUT/

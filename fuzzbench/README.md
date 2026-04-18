@@ -139,13 +139,21 @@ make stop-experiment
 For more control, use the Python API directly:
 
 ```bash
+docker stop $(docker ps -q)
+
 source .venv/bin/activate && pip install "setuptools<81" wheel
 
-PYTHONPATH=. python3 experiment/run_experiment.py \
+docker rm -f dispatcher-container 2>/dev/nul
+
+docker rm -f dispatcher-container 2>/dev/null; PYTHONPATH=. python3 experiment/run_experiment.py \
   --experiment-config experiment-config.yaml \
-  --experiment-name aflpp-parallel-test1 \
-  --fuzzers aflplusplus_parallel \
-  --benchmarks libpng_libpng_read_fuzzer libjpeg-turbo_libjpeg_turbo_fuzzer lcms_cms_transform_fuzzer \
+  --experiment-name my-experiment1 \
+  --fuzzers aflplusplus ecofuzz muofuzz mopt \
+  --benchmarks libpng_libpng_read_fuzzer libjpeg-turbo_libjpeg_turbo_fuzzer  openssl_x509 lcms_cms_transform_fuzzer stb_stbi_read_fuzzer vorbis_decode_fuzzer harfbuzz_hb-shape-fuzzer woff2_convert_woff2ttf_fuzzer
+
+  \
+
+mbedtls_fuzz_dtlsclient
   --runners-cpus 64
 ```
 

@@ -29,6 +29,11 @@ RUN apt-get update && \
         libpixman-1-dev \
         cargo \
         libgtk-3-dev \
+        llvm-18 \
+        llvm-18-dev \
+        clang-18 \
+        libc++-18-dev \
+        libc++abi-18-dev \
         # for QEMU mode
         ninja-build \
         gcc-$(gcc --version|head -n1|sed 's/\..*//'|sed 's/.* //')-plugin-dev \
@@ -42,8 +47,10 @@ RUN git clone -b dev https://github.com/AFLplusplus/AFLplusplus /afl && \
 
 # Build without Python support as we don't need it.
 # Set AFL_NO_X86 to skip flaky tests.
+# Pin LLVM to v18 so AFL++ llvm_mode builds (the base image ships LLVM 22
+# which AFL++ rejects as "too new").
 RUN cd /afl && \
     unset CFLAGS CXXFLAGS && \
-    export CC=clang AFL_NO_X86=1 && \
+    export CC=clang-18 CXX=clang++-18 LLVM_CONFIG=llvm-config-18 AFL_NO_X86=1 && \
     PYTHON_INCLUDE=/ make && \
     cp utils/aflpp_driver/libAFLDriver.a /

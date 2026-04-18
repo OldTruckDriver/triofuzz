@@ -15,16 +15,26 @@
 #
 ################################################################################
 
-pip3 install -r $SRC/mbedtls/scripts/basic.requirements.txt
+# Use the same python3 that cmake will find, so jsonschema & friends land in
+# the interpreter that runs mbedtls's generator scripts (base-builder ships
+# both python3.10 and python3.11 and `pip3` may resolve to a different one
+# than cmake's Python3_EXECUTABLE).
+PY3="$(command -v python3)"
+"$PY3" -m pip install -r $SRC/mbedtls/scripts/basic.requirements.txt
 
 # build project
 perl scripts/config.pl set MBEDTLS_PLATFORM_TIME_ALT
 mkdir -p build
 cd build
-# Append -Wno-error=documentation to CFLAGS to handle mbedtls doxygen issues
-export CFLAGS="${CFLAGS:-} -Wno-error=documentation"
-export CXXFLAGS="${CXXFLAGS:-} -Wno-error=documentation"
-cmake -DENABLE_TESTING=OFF -DCMAKE_C_FLAGS="$CFLAGS" -DCMAKE_CXX_FLAGS="$CXXFLAGS" ..
+# -Wno-error: mbedtls's CMake treats warnings as errors and injects GCC-15 flags
+#   (e.g. -Werror=unterminated-string-initialization) that clang doesn't know;
+#   demote all -Werror to plain warnings so unknown options and doxygen/etc
+#   don't fail coverage+asan builds under newer clang.
+# -Wno-unknown-warning-option: also needed so clang silently ignores the
+#   GCC-15-only warning names instead of still printing -Wunknown-warning-option.
+export CFLAGS="${CFLAGS:-} -Wno-error -Wno-unknown-warning-option"
+export CXXFLAGS="${CXXFLAGS:-} -Wno-error -Wno-unknown-warning-option"
+cmake -DENABLE_TESTING=OFF -DPython3_EXECUTABLE="$PY3" -DCMAKE_C_FLAGS="$CFLAGS" -DCMAKE_CXX_FLAGS="$CXXFLAGS" ..
 # build including fuzzers
 make -j$(nproc) all
 cp programs/fuzz/fuzz_* $OUT/

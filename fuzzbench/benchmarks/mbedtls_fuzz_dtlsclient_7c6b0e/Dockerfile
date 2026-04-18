@@ -20,7 +20,7 @@ RUN apt-get update && apt-get install -y \
     python-all-dev \
     python3-all-dev \
     python3-pip  && \
-    ln -s /usr/local/bin/pip3 /usr/local/bin/pip
+    ln -sf /usr/local/bin/pip3 /usr/local/bin/pip
 
 RUN git clone --recursive -b development https://github.com/Mbed-TLS/mbedtls.git mbedtls
 

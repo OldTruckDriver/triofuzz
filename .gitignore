@@ -4,3 +4,6 @@
 # But keep .gitignore itself
 !.gitignore
 build/
+
+
+my*

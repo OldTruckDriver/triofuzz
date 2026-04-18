@@ -1,10 +1,10 @@
 # The number of trials of a fuzzer-benchmark pair.
-trials: 3
-snapshot_period: 60
+trials: 10
+snapshot_period: 900
 
 # The amount of time in seconds that each trial is run for.
 # 1 day = 24 * 60 * 60 = 86400
-max_total_time: 3600
+max_total_time: 86400
 
 # The location of the docker registry.
 # FIXME: Support custom docker registry.
@@ -25,4 +25,4 @@ report_filestore: /tmp/usenix-report-data
 local_experiment: true
 
 # The number of CPU cores allocated to each runner.
-runner_num_cpu_cores: 4
+# runner_num_cpu_cores: 1

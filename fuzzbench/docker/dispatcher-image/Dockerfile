@@ -50,6 +50,6 @@ COPY --from=base-llvm /usr/local/bin/llvm-cov /usr/local/bin/
 COPY --from=base-llvm /usr/local/bin/llvm-profdata /usr/local/bin/
 COPY --from=base-llvm /usr/local/bin/llvm-symbolizer /usr/local/bin/
 
-RUN pip install Orange3==3.33.0
+RUN pip install "pandas<2" "numpy<2" Orange3==3.33.0
 
 COPY startup-dispatcher.sh $WORK/
