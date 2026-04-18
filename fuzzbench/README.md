@@ -143,8 +143,8 @@ source .venv/bin/activate && pip install "setuptools<81" wheel
 
 PYTHONPATH=. python3 experiment/run_experiment.py \
   --experiment-config experiment-config.yaml \
-  --experiment-name my-experiment-test3 \
-  --fuzzers triofuzz \
+  --experiment-name aflpp-parallel-test1 \
+  --fuzzers aflplusplus_parallel \
   --benchmarks libpng_libpng_read_fuzzer libjpeg-turbo_libjpeg_turbo_fuzzer lcms_cms_transform_fuzzer \
   --runners-cpus 64
 ```
