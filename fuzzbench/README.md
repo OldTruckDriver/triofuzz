@@ -20,7 +20,7 @@ sudo apt-get install python3.10-dev python3.10-venv
 make install-dependencies
 
 # 3. Activate this virtualenv before running further commands.
-source .venv/bin/activate
+source .venv/bin/activate && pip install "setuptools<81"
 
 
 # 4. Build Docker base images
@@ -139,11 +139,11 @@ make stop-experiment
 For more control, use the Python API directly:
 
 ```bash
-source .venv/bin/activate
+source .venv/bin/activate && pip install "setuptools<81" wheel
 
 PYTHONPATH=. python3 experiment/run_experiment.py \
-  --experiment-config config/experiment.yaml \
-  --experiment-name my-experiment \
+  --experiment-config experiment-config.yaml \
+  --experiment-name my-experiment-test3 \
   --fuzzers triofuzz \
   --benchmarks libpng_libpng_read_fuzzer libjpeg-turbo_libjpeg_turbo_fuzzer lcms_cms_transform_fuzzer \
   --runners-cpus 64
