@@ -29,24 +29,33 @@ RUN apt-get update && \
         libpixman-1-dev \
         cargo \
         libgtk-3-dev \
-        llvm-18 \
-        llvm-18-dev \
-        clang-18 \
-        libc++-18-dev \
-        libc++abi-18-dev \
+        wget \
+        gnupg \
         # for QEMU mode
         ninja-build \
         gcc-$(gcc --version|head -n1|sed 's/\..*//'|sed 's/.* //')-plugin-dev \
         libstdc++-$(gcc --version|head -n1|sed 's/\..*//'|sed 's/.* //')-dev
 
+# Install LLVM 17 (required to build the AFL++-derived MuoFuzz core).
+RUN rm -f /usr/local/bin/clang /usr/local/bin/clang++ && \
+    hash -r && \
+    echo "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-17 main" >> /etc/apt/sources.list && \
+    echo "deb-src http://apt.llvm.org/focal/ llvm-toolchain-focal-17 main" >> /etc/apt/sources.list && \
+    (wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc) && \
+    apt-get update && \
+    apt-get install -y clang-17 llvm-17-dev lld-17 libc++1-17 libc++-17-dev libc++abi-17-dev && \
+    update-alternatives --install /usr/bin/clang clang /usr/bin/clang-17 100 && \
+    update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-17 100 && \
+    update-alternatives --install /usr/bin/llvm-config llvm-config /usr/bin/llvm-config-17 100 && \
+    update-alternatives --install /usr/bin/llvm-cov llvm-cov /usr/bin/llvm-cov-17 100 && \
+    update-alternatives --install /usr/bin/llvm-profdata llvm-profdata /usr/bin/llvm-profdata-17 100
+
 ADD afl /afl
 
 # Build without Python support as we don't need it.
 # Set AFL_NO_X86 to skip flaky tests.
-# Pin LLVM to v18 so AFL++ llvm_mode builds (the base image ships LLVM 22
-# which AFL++ rejects as "too new").
 RUN cd /afl && \
     unset CFLAGS CXXFLAGS && \
-    export CC=clang-18 CXX=clang++-18 LLVM_CONFIG=llvm-config-18 AFL_NO_X86=1 && \
-    PYTHON_INCLUDE=/ make && \
+    export CC=clang-17 CXX=clang++-17 AFL_NO_X86=1 && \
+    PYTHON_INCLUDE=/ make LLVM_CONFIG=llvm-config-17 && \
     cp utils/aflpp_driver/libAFLDriver.a /

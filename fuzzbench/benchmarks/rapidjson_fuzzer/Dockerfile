@@ -16,6 +16,8 @@
 
 FROM gcr.io/oss-fuzz-base/base-builder
 RUN apt-get update && apt-get install -y make autoconf automake libtool cmake
-RUN git clone --depth 1 https://github.com/Tencent/rapidjson.git rapidjson
+RUN git clone https://github.com/Tencent/rapidjson.git rapidjson && \
+    cd rapidjson && \
+    git checkout 24b5e7a8b27f42fa16b96fc70aade9106cf7102f
 WORKDIR rapidjson
 COPY build.sh fuzzer.cpp $SRC/

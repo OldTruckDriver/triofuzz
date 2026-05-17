@@ -19,6 +19,8 @@
 #include <signal.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <pthread.h>
+#include <cstdio>
 #include <future>
 #include <sstream>
 #include <atomic>
@@ -245,6 +247,33 @@ public:
 
         // Update global current input variable for crash handler
         g_current_fuzzing_input = input;
+
+        // In-process crash recovery checkpoint.
+        // sigsetjmp returns 0 on direct call; returns `sig` if the signal
+        // handler longjmps back here after the target crashed.
+        int crash_sig = sigsetjmp(collafuzz::crash_tracker::tls_target_jmp_buf, 1);
+        if (crash_sig != 0) {
+            // Recovered from target crash. The handler already saved the input
+            // and produced a report; we just turn it into a Crash result and
+            // let the engine carry on.
+            auto end_time = std::chrono::high_resolution_clock::now();
+            auto us = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
+            result.status = triofuzz::ExecutionResult::Status::Crash;
+            result.crash_info.push_back("Target crashed with signal " + std::to_string(crash_sig));
+            result.performance.execution_time_ms = static_cast<double>(us) / 1000.0;
+            result.performance.memory_usage_bytes = input.size();
+            result.coverage = getCurrentRealCoverage();
+            result.output = input;
+            result.input_data = input;
+            return result;
+        }
+
+        // Arm the recovery flag *after* sigsetjmp (so the longjmp path doesn't
+        // re-arm). RAII guard clears it on every exit, including exceptions.
+        struct InTargetGuard {
+            ~InTargetGuard() { collafuzz::crash_tracker::tls_in_target_execution = false; }
+        } in_target_guard;
+        collafuzz::crash_tracker::tls_in_target_execution = true;
 
         try {
             // Direct execution, no thread pool overhead
@@ -635,38 +664,68 @@ triofuzz::FuzzingConfig create_fuzzing_config(int argc, char* argv[]) {
 }
 
 // Global crash handling variables
-thread_local std::vector<uint8_t> g_current_fuzzing_input;
+// NOTE: g_current_fuzzing_input is defined in fuzzing_engine.cpp; we use it via
+// the `extern thread_local` declaration at the top of this file. Defining a
+// second one inside the anonymous namespace silently shadows the global only
+// from the point of definition onward, which previously caused writes (above)
+// and reads (below) to bind to two different TLS slots and broke crash-input
+// saving. Don't reintroduce the duplicate.
 static std::atomic<bool> g_crash_handler_installed{false};
 
-// Global crash handler - uses the enhanced crash tracker
+// Global crash handler - uses the enhanced crash tracker.
+//
+// Two paths:
+//   - If crash happened inside LLVMFuzzerTestOneInput (tls_in_target_execution
+//     is true), save the input + report and siglongjmp back to the executor
+//     so fuzzing continues in-process. This is the libFuzzer-style recovery.
+//   - Otherwise the crash is in the engine itself; preserve the old
+//     die-and-restart behavior so the captain script restores from checkpoint.
 void global_crash_handler(int sig, siginfo_t* info, void* context) {
-    // Avoid complex operations in signal handler
-    static std::atomic<bool> crash_in_progress{false};
+    using namespace collafuzz::crash_tracker;
 
-    // Prevent recursive crashes
+    if (tls_in_target_execution) {
+        // Save crashing input for magma (best-effort, async-signal-safe)
+        saveCrashingInputForMagma(g_current_fuzzing_input, sig);
+
+        // Generate the enhanced report. This is NOT strictly async-signal-safe
+        // (uses streams, mutexes) but it's the existing behavior and works in
+        // practice because the recursive-handler guard prevents reentry.
+        try {
+            EnhancedCrashTracker::getInstance().handleCrash(sig, info, context);
+        } catch (...) {
+            // swallow — recovery must not be blocked by reporter bugs
+        }
+
+        char msg[160];
+        int n = std::snprintf(msg, sizeof(msg),
+                              "[TrioFuzz] In-process recovery: target crashed with signal %d, continuing\n",
+                              sig);
+        write(STDERR_FILENO, msg, (size_t)n);
+
+        tls_in_target_execution = false;
+        siglongjmp(tls_target_jmp_buf, sig);
+        // unreachable
+    }
+
+    // --- Fallthrough: crash outside target execution ---
+    static std::atomic<bool> crash_in_progress{false};
     if (crash_in_progress.exchange(true)) {
         _exit(1);
     }
 
     try {
-        // Use enhanced crash tracker to handle crash
-        auto& tracker = collafuzz::crash_tracker::EnhancedCrashTracker::getInstance();
-        tracker.handleCrash(sig, info, context);
+        EnhancedCrashTracker::getInstance().handleCrash(sig, info, context);
 
-        // Output simple message to stderr
         char crash_msg[256];
         std::snprintf(crash_msg, sizeof(crash_msg),
-                     "[TrioFuzz] Enhanced crash handler: Signal %d, comprehensive report generated\n",
+                     "[TrioFuzz] Engine crash (not in target): Signal %d, dying for restart\n",
                      sig);
         write(STDERR_FILENO, crash_msg, strlen(crash_msg));
-
     } catch (...) {
-        // If enhanced tracker fails, fall back to simple handling
         char fallback_msg[] = "[TrioFuzz] Enhanced crash handler failed, signal caught\n";
         write(STDERR_FILENO, fallback_msg, strlen(fallback_msg));
     }
 
-    // Restore default handler and re-raise the signal
     signal(sig, SIG_DFL);
     raise(sig);
 }
@@ -778,6 +837,20 @@ extern "C" int main(int argc, char* argv[]) {
     // Create fuzzing configuration
     std::cout << "[TrioFuzz] Creating fuzzing configuration..." << std::endl;
     auto config = create_fuzzing_config(argc, argv);
+
+    // Tell crash tracker where to drop magma-compatible crash inputs.
+    // We mirror libFuzzer/AFL convention: <output>/crashes/<crash-files>.
+    // Magma's findings.sh recurses through $SHARED/findings/, so files here
+    // are picked up by the campaign harness.
+    if (!std::string(config.output_dir).empty()) {
+        std::string crashes_dir = std::string(config.output_dir) + "/crashes";
+        std::error_code ec;
+        std::filesystem::create_directories(crashes_dir, ec);
+        if (!ec) {
+            collafuzz::crash_tracker::setFindingsCrashesDir(crashes_dir);
+            std::cout << "[TrioFuzz] Magma crash dir: " << crashes_dir << std::endl;
+        }
+    }
 
     if (getEffectiveConfig().verbose) {
         std::cout << "[TrioFuzz] Configuration:" << std::endl;

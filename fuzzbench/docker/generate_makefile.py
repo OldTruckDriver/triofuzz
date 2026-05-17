@@ -117,8 +117,9 @@ def get_rules_for_image(name, image):
     section += '\n'
     if 'base-' in name:
         section += '\tdocker pull ubuntu:focal\n'
-    section += '\tDOCKER_BUILDKIT=0 docker build \\\n'
+    section += '\tdocker build \\\n'
     section += '\t--tag ' + os.path.join(BASE_TAG, image['tag']) + ' \\\n'
+    section += '\t--build-arg BUILDKIT_INLINE_CACHE=1 \\\n'
     section += ('\t--cache-from ' + os.path.join(BASE_TAG, image['tag']) +
                 ' \\\n')
 

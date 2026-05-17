@@ -15,47 +15,44 @@
 #
 ################################################################################
 
-#add next branch
-for branch in v5 next
-do
-    cd $SRC/capstone$branch
-    # build project
-    mkdir build
-    # does not seem to work in source directory
-    # + make.sh overwrites CFLAGS
-    cd build
-    cmake -DCAPSTONE_BUILD_SHARED=0 ..
-    make
+branch=v5
+cd $SRC/capstone$branch
+# build project
+mkdir build
+# does not seem to work in source directory
+# + make.sh overwrites CFLAGS
+cd build
+cmake -DCAPSTONE_BUILD_SHARED=0 ..
+make
 
-    cd $SRC/capstone$branch/bindings/python
-    #better debug info
-    sed -i -e 's/#print/print/' capstone/__init__.py
-    (
-    export CFLAGS=""
-    export AFL_NOOPT=1
-    # Install wheel to enable bdist_wheel command
-    python3 -m pip install wheel
-    # Use system site-packages (cmake, ninja) during build to avoid
-    # PEP 517 isolated env missing cmake module.
-    python3 -m pip install --no-build-isolation .
-    )
-    cd $SRC/capstone$branch/suite
-    mkdir fuzz/corpus
-    find MC/ -name *.cs | ./test_corpus3.py
-    cd fuzz
-    zip -r fuzz_disasm"$branch"_seed_corpus.zip corpus/
-    cp fuzz_disasm"$branch"_seed_corpus.zip $OUT/
+cd $SRC/capstone$branch/bindings/python
+#better debug info
+sed -i -e 's/#print/print/' capstone/__init__.py
+(
+export CFLAGS=""
+export AFL_NOOPT=1
+# Install wheel to enable bdist_wheel command
+python3 -m pip install wheel
+# Use system site-packages (cmake, ninja) during build to avoid
+# PEP 517 isolated env missing cmake module.
+python3 -m pip install --no-build-isolation .
+)
+cd $SRC/capstone$branch/suite
+mkdir fuzz/corpus
+find MC/ -name *.cs | ./test_corpus3.py
+cd fuzz
+zip -r fuzz_disasm"$branch"_seed_corpus.zip corpus/
+cp fuzz_disasm"$branch"_seed_corpus.zip $OUT/
 
-    # export other associated stuff
-    cp fuzz_disasm.options $OUT/fuzz_disasm$branch.options
+# export other associated stuff
+cp fuzz_disasm.options $OUT/fuzz_disasm$branch.options
 
-    cd ../../build
-    # build fuzz target
-    FUZZO=CMakeFiles/fuzz_disasm.dir/suite/fuzz/fuzz_disasm.c.o
-    if [ -f CMakeFiles/fuzz_disasm.dir/suite/fuzz/platform.c.o ]; then
-        FUZZO="$FUZZO CMakeFiles/fuzz_disasm.dir/suite/fuzz/platform.c.o"
-    fi
-    $CXX $CXXFLAGS $FUZZO -o $OUT/fuzz_disasm$branch libcapstone.a $LIB_FUZZING_ENGINE $LIBS
+cd ../../build
+# build fuzz target
+FUZZO=CMakeFiles/fuzz_disasm.dir/suite/fuzz/fuzz_disasm.c.o
+if [ -f CMakeFiles/fuzz_disasm.dir/suite/fuzz/platform.c.o ]; then
+    FUZZO="$FUZZO CMakeFiles/fuzz_disasm.dir/suite/fuzz/platform.c.o"
+fi
+$CXX $CXXFLAGS $FUZZO -o $OUT/fuzz_disasm$branch libcapstone.a $LIB_FUZZING_ENGINE $LIBS
 
-    python3 -m pip uninstall -y capstone
-done
+python3 -m pip uninstall -y capstone

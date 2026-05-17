@@ -12,10 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Use the same LLVM version as coverage builders for profile compatibility.
-# The base-clang-minimal image contains the latest LLVM toolchain used by
-# benchmark builders and coverage builders.
-FROM gcr.io/oss-fuzz-base/base-clang AS base-llvm
+FROM gcr.io/oss-fuzz-base/base-clang AS base-clang
 
 FROM gcr.io/fuzzbench/base-image
 
@@ -32,7 +29,7 @@ RUN apt-get update -y && apt-get install -y \
     libgl1
 
 # Install docker cli.
-RUN DOCKER_VERSION=27.0.3 && \
+RUN DOCKER_VERSION=18.09.7 && \
     curl -O https://download.docker.com/linux/static/stable/x86_64/docker-$DOCKER_VERSION.tgz && \
     tar -xvzf docker-$DOCKER_VERSION.tgz && \
     mv docker/docker /usr/bin/ && \
@@ -44,12 +41,9 @@ RUN curl https://dl.google.com/cloudsql/cloud_sql_proxy.linux.amd64 > \
 RUN chmod +x /usr/local/bin/cloud_sql_proxy
 
 # Copy llvm-tool binaries needed for clang source-code based coverage and
-# symbolization. Use the same LLVM toolchain as base-builder so that coverage
-# profiles emitted by coverage builds can be merged and exported correctly.
-COPY --from=base-llvm /usr/local/bin/llvm-cov /usr/local/bin/
-COPY --from=base-llvm /usr/local/bin/llvm-profdata /usr/local/bin/
-COPY --from=base-llvm /usr/local/bin/llvm-symbolizer /usr/local/bin/
-
-RUN pip install "pandas<2" "numpy<2" Orange3==3.33.0
+# symbolization.
+COPY --from=base-clang /usr/local/bin/llvm-cov /usr/local/bin/
+COPY --from=base-clang /usr/local/bin/llvm-profdata /usr/local/bin/
+COPY --from=base-clang /usr/local/bin/llvm-symbolizer /usr/local/bin/
 
 COPY startup-dispatcher.sh $WORK/

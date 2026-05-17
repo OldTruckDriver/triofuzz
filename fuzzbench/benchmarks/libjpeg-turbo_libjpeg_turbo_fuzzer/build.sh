@@ -16,31 +16,7 @@
 set -e
 set -u
 
-# Wrap cmake to add -DCMAKE_POLICY_VERSION_MINIMUM=3.5 for compatibility
-# with older CMakeLists.txt (e.g., libjpeg-turbo 3.0.x branch)
-# Create a cmake wrapper script
-cat > /tmp/cmake << 'EOF'
-#!/bin/bash
-# Find the real cmake binary (skip our wrapper in the search)
-REAL_CMAKE=""
-IFS=':' read -ra PATHS <<< "$PATH"
-for p in "${PATHS[@]}"; do
-    if [ "$p" != "/tmp" ] && [ -x "$p/cmake" ]; then
-        REAL_CMAKE="$p/cmake"
-        break
-    fi
-done
-
-# If this is a configuration call (not --build, --version, etc.), add the policy flag
-if [ "$1" != "--build" ] && [ "$1" != "--version" ] && [ "$1" != "--help" ] && [ "$1" != "-E" ]; then
-    exec "$REAL_CMAKE" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 "$@"
-else
-    exec "$REAL_CMAKE" "$@"
-fi
-EOF
-chmod +x /tmp/cmake
-# Prepend to PATH so our wrapper is used
-export PATH="/tmp:$PATH"
+export CMAKE_POLICY_VERSION_MINIMUM=3.5
 
 cat fuzz/branches.txt | while read branch; do
     pushd libjpeg-turbo.$branch

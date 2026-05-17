@@ -158,25 +158,10 @@ def add_bugs_covered_column(experiment_df):
         return experiment_df
     grouping2 = ['fuzzer', 'benchmark', 'trial_id']
     grouping3 = ['fuzzer', 'benchmark', 'trial_id', 'time']
-    df = experiment_df.sort_values(grouping3).reset_index(drop=True)
-
-    # Build firsts column by iterating over groups directly to avoid
-    # pandas groupby().apply() index alignment issues.
-    firsts = []
-    for _, group in df.groupby(grouping2, sort=False):
-        unique_crashes = set()
-        for crash in group.crash_key:
-            crash_state = ':'.join(str(crash).split(':')[1:])
-            is_unique = True
-            for unique_crash in unique_crashes:
-                if CrashComparer(crash_state, unique_crash).is_similar():
-                    is_unique = False
-                    break
-            unique_crashes.add(crash_state)
-            firsts.append(is_unique)
-
-    df['firsts'] = firsts
-    df['firsts'] = df['firsts'] & ~df.crash_key.isna()
+    df = experiment_df.sort_values(grouping3)
+    df['firsts'] = (
+        df.groupby(grouping2, group_keys=False).apply(is_unique_crash) &
+        ~df.crash_key.isna())
     df['bugs_cumsum'] = df.groupby(grouping2)['firsts'].transform('cumsum')
     df['bugs_covered'] = (
         df.groupby(grouping3)['bugs_cumsum'].transform('max').astype(int))

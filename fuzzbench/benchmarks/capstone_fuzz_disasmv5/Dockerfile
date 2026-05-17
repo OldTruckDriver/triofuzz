@@ -21,7 +21,8 @@ FROM gcr.io/oss-fuzz-base/base-builder
 RUN apt-get update && apt-get install -y make cmake python3 python3-pip && \
     update-alternatives --install /usr/bin/python python /usr/bin/python3 1 && \
     python3 -m pip install --upgrade setuptools build wheel pip
-RUN git clone --depth 1 --branch v5 https://github.com/capstone-engine/capstone.git capstonev5
-RUN git clone --depth 1 --branch next https://github.com/capstone-engine/capstone.git capstonenext
+RUN git clone --branch v5 https://github.com/capstone-engine/capstone.git capstonev5 && \
+    cd capstonev5 && \
+    git checkout 24a2248c1bb88ad7a4cbad14bab2e853fef7c791
 WORKDIR $SRC
 COPY build.sh $SRC/

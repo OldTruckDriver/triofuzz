@@ -19,15 +19,6 @@ from common import yaml_utils
 from common.utils import ROOT_DIR
 
 
-_FUZZER_DOCKER_CONTEXT_ALIASES = {
-    # TrioFuzz ablation fuzzers reuse TrioFuzz's Docker build context (source
-    # tree + toolchain build) and differ only in runtime flags in fuzzer.py.
-    'trio_ecofuzz': 'triofuzz',
-    'trio_mopt': 'triofuzz',
-    'trio_muofuzz': 'triofuzz',
-}
-
-
 def _substitute(template, fuzzer, benchmark):
     """Replaces {fuzzer} or {benchmark} with |fuzzer| or |benchmark| in
     |template| string."""
@@ -46,19 +37,6 @@ def _instantiate_image_obj(name_template, obj_template, fuzzer, benchmark):
             ]
         else:
             obj[key] = _substitute(obj[key], fuzzer, benchmark)
-
-    base_fuzzer = _FUZZER_DOCKER_CONTEXT_ALIASES.get(fuzzer)
-    if base_fuzzer:
-        # Only override templates that point at the fuzzer's own Dockerfiles.
-        # Final builder/runner images use context '.' and should remain unchanged.
-        alias_prefix = f'fuzzers/{fuzzer}/'
-        base_prefix = f'fuzzers/{base_fuzzer}/'
-        dockerfile = obj.get('dockerfile', '')
-        if dockerfile.startswith(alias_prefix):
-            obj['dockerfile'] = base_prefix + dockerfile[len(alias_prefix):]
-        if obj.get('context') == f'fuzzers/{fuzzer}':
-            obj['context'] = f'fuzzers/{base_fuzzer}'
-
     return name, obj
 
 

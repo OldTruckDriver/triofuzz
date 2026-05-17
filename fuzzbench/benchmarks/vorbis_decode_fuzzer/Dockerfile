@@ -14,7 +14,7 @@
 #
 ################################################################################
 
-FROM gcr.io/oss-fuzz-base/base-builder
+FROM gcr.io/oss-fuzz-base/base-builder@sha256:87ca1e9e19235e731fac8de8d1892ebe8d55caf18e7aa131346fc582a2034fdd
 
 RUN apt-get update && \
     apt-get install -y \
@@ -26,7 +26,8 @@ RUN apt-get update && \
 
 RUN git clone https://github.com/xiph/ogg.git && \
     git -C ogg checkout db5c7a49ce7ebda47b15b78471e78fb7f2483e22
-RUN git clone https://github.com/xiph/vorbis.git
+RUN git clone https://github.com/xiph/vorbis.git && \
+    git -C vorbis checkout 84c023699cdf023a32fa4ded32019f194afcdad0
 RUN wget -qO $SRC/decode_fuzzer.cc \
     https://raw.githubusercontent.com/google/oss-fuzz/688aadaf44499ddada755562109e5ca5eb3c5662/projects/vorbis/decode_fuzzer.cc
 

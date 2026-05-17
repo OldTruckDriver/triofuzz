@@ -63,7 +63,7 @@ export TIMEOUT=24h
 ======================= libsndfile =======================
 
 cd tools/captain
-mkdir -p /path/to/magma/tools/captain/libsndfile
+mkdir -p libsndfile
 
 export FUZZER=triofuzz 
 export TARGET=libsndfile 
@@ -84,7 +84,7 @@ export TIMEOUT=24h
 ======================= poppler =======================
 
 cd tools/captain
-mkdir -p /path/to/magma/tools/captain/poppler
+mkdir -p poppler
 
 export FUZZER=triofuzz 
 export TARGET=poppler 
@@ -105,9 +105,9 @@ export TIMEOUT=24h
 ======================= libtiff =======================
 
 cd tools/captain
-mkdir -p /path/to/magma/tools/captain/libtiff
+mkdir -p libtiff
 
-export FUZZER=collabfuzz_mini 
+export FUZZER=triofuzz 
 export TARGET=libtiff 
 ./build.sh
 
@@ -125,7 +125,7 @@ export TIMEOUT=24h
 ======================= libxml2 =======================
 
 cd tools/captain
-mkdir -p /path/to/magma/tools/captain/libxml2
+mkdir -p libxml2
 
 export FUZZER=triofuzz 
 export TARGET=libtiff 

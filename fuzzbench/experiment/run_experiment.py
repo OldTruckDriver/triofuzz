@@ -531,6 +531,8 @@ class LocalDispatcher(BaseDispatcher):
             set_concurrent_builds_arg,
             '-e',
             set_worker_pool_name_arg,
+            '-e',
+            'DOCKER_API_VERSION=1.44',
         ]
         command = [
             'docker',

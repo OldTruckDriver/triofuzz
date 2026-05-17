@@ -14,7 +14,7 @@
 #
 ################################################################################
 
-FROM gcr.io/oss-fuzz-base/base-builder
+FROM gcr.io/oss-fuzz-base/base-builder@sha256:87ca1e9e19235e731fac8de8d1892ebe8d55caf18e7aa131346fc582a2034fdd
 
 RUN apt-get update && \
     apt-get install -y \
@@ -29,9 +29,9 @@ RUN git clone \
         --branch v1.2.13 \
         https://github.com/madler/zlib.git
 
-RUN git clone https://github.com/pnggroup/libpng.git && \
-    cd libpng && \
-    git checkout cd0ea2a7f53b603d3d9b5b891c779c430047b39a
+RUN git clone \
+        https://github.com/glennrp/libpng.git && \
+    git -C libpng checkout cd0ea2a7f53b603d3d9b5b891c779c430047b39a
 RUN cp libpng/contrib/oss-fuzz/build.sh $SRC
 
 WORKDIR libpng

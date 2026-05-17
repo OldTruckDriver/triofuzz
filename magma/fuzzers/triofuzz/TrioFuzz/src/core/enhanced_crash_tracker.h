@@ -7,11 +7,41 @@
 #include <cstdint>
 #include <ctime>
 #include <signal.h>
+#include <setjmp.h>
 #include <mutex>
 #include <atomic>
 
 namespace collafuzz {
 namespace crash_tracker {
+
+// ---------------------------------------------------------------------------
+// In-process crash recovery
+//
+// When a target (LLVMFuzzerTestOneInput) crashes with a fatal signal, we want
+// to record the crashing input and continue fuzzing instead of letting the
+// signal kill the fuzzer process. The pattern is the classic libFuzzer one:
+//
+//   1. Before invoking the target, set tls_in_target_execution = true and
+//      call sigsetjmp(tls_target_jmp_buf, 1). A direct return yields 0.
+//   2. The target runs. If it crashes, the signal handler sees the flag set,
+//      records the crash, and calls siglongjmp(tls_target_jmp_buf, sig). That
+//      transfers control back to step 1's setjmp call with a non-zero return.
+//   3. The executor treats the non-zero return as a crash result, then clears
+//      the flag and continues the fuzzing loop.
+//
+// Crashes that occur outside target execution (e.g. in the fuzzing engine
+// itself) keep the previous die-and-restart behavior because the flag is
+// false. tls_target_jmp_buf is thread-local so each worker/explorer thread
+// recovers independently.
+// ---------------------------------------------------------------------------
+extern thread_local sigjmp_buf tls_target_jmp_buf;
+extern thread_local bool tls_in_target_execution;
+
+// Save crashing input to magma's findings/crashes/ directory so the
+// magma campaign harness can count and reproduce the bug. No-op if
+// findings_crashes_dir is empty.
+void setFindingsCrashesDir(const std::string& dir);
+void saveCrashingInputForMagma(const std::vector<uint8_t>& input, int sig);
 
 // Enhanced crash information structure
 struct CrashInfo {

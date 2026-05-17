@@ -16,6 +16,8 @@
 
 FROM gcr.io/oss-fuzz-base/base-builder
 RUN apt-get update && apt-get install -y make autoconf automake libtool
-RUN git clone --depth 1 https://github.com/ryanhaining/cppitertools cppitertools
+RUN git clone https://github.com/ryanhaining/cppitertools cppitertools && \
+    cd cppitertools && \
+    git checkout 13947eb68f464cb014343de7a155016290655d1a
 WORKDIR cppitertools
 COPY build.sh *.cpp $SRC/

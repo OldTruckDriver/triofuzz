@@ -14,11 +14,18 @@
 
 FROM gcr.io/fuzzbench/base-image
 
-# Targets are linked against libc++ provided by clang-18 from apt, which ships
-# it as a shared library (base-builder's clang-22 used a static libc++.a). Install
-# the matching runtime so the target binary can load at fuzz time.
+ARG DEBIAN_FRONTEND=noninteractive
+
+# Targets are built with clang-17 + -stdlib=libc++, so they dynamically link
+# against libc++.so.1 / libc++abi.so.1 / libunwind.so.1 from LLVM 17. Install
+# them so the fuzz target can be loaded by afl-fuzz at runtime.
 RUN apt-get update && \
-    apt-get install -y libc++1-18 libc++abi1-18 libunwind-18
+    apt-get install -y --no-install-recommends wget gnupg && \
+    echo "deb http://apt.llvm.org/focal/ llvm-toolchain-focal-17 main" >> /etc/apt/sources.list && \
+    (wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc) && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        libc++1-17 libc++abi1-17 libunwind-17
 
 # This makes interactive docker runs painless:
 ENV LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/out"

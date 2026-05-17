@@ -16,6 +16,8 @@
 
 FROM gcr.io/oss-fuzz-base/base-builder
 RUN apt-get update && apt-get install -y make autoconf automake libtool liblzma-dev
-RUN git clone --depth 1 https://github.com/libunwind/libunwind libunwind
+RUN git clone https://github.com/libunwind/libunwind libunwind && \
+    cd libunwind && \
+    git checkout bfc0d618f72ba4b725c3735188e0a6d8c710411c
 WORKDIR libunwind
 COPY build.sh *.c $SRC/

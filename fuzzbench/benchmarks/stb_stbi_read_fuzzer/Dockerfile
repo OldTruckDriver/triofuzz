@@ -14,7 +14,7 @@
 #
 ################################################################################
 
-FROM gcr.io/oss-fuzz-base/base-builder
+FROM gcr.io/oss-fuzz-base/base-builder@sha256:87ca1e9e19235e731fac8de8d1892ebe8d55caf18e7aa131346fc582a2034fdd
 
 RUN apt-get update && \
     apt-get install -y \
@@ -22,7 +22,8 @@ RUN apt-get update && \
 
 # This project does not have any release/tag.
 RUN git clone \
-        https://github.com/nothings/stb.git
+        https://github.com/nothings/stb.git && \
+    git -C stb checkout 5736b15f7ea0ffb08dd38af21067c314d6a3aae9
 
 RUN mkdir $SRC/stbi # CIFuzz workaround
 

@@ -3873,6 +3873,10 @@ void FuzzingEngine::initialize() {
                     // triofuzz-Mini: Use AFLCompatibleCoverage for fair comparison with AFL++
                     auto& afl_cov_warm = triofuzz::AFLCompatibleCoverage::getInstance();
                     auto maybeSaveSeed = [&](const std::vector<uint8_t>& data, ExecutionResult& r) {
+                        // Never promote crashing inputs to the corpus — they are already
+                        // persisted under findings/crashes/ by the signal handler, and
+                        // re-fuzzing them just produces the same crash again.
+                        if (r.status == ExecutionResult::Status::Crash) return;
                         if (!afl_cov_warm.hasNewCoverage()) return;
                         // Use bitmap hash for deduplication
                         auto bitmap = afl_cov_warm.getCurrentBitmap();
@@ -3951,9 +3955,15 @@ void FuzzingEngine::initialize() {
             #endif
 
             // triofuzz-Mini: Use AFLCompatibleCoverage for fair comparison with AFL++
-            // Check coverage after every execution (AFL++ style)
+            // Check coverage after every execution (AFL++ style).
+            // Crashing inputs are intentionally NOT eligible for corpus admission:
+            // they are already saved under findings/crashes/ by the signal handler,
+            // and feeding them back into the corpus just makes the same target bug
+            // get re-hit on every scheduling pass, wasting cycles.
             auto& afl_cov = triofuzz::AFLCompatibleCoverage::getInstance();
-            bool might_have_new_coverage = afl_cov.hasNewCoverage();
+            bool might_have_new_coverage =
+                result.status != ExecutionResult::Status::Crash &&
+                afl_cov.hasNewCoverage();
 
                 if (might_have_new_coverage) {
                     // New coverage found! Compute bitmap hash for deduplication

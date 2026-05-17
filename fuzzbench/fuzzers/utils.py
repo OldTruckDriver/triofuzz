@@ -50,7 +50,7 @@ SANITIZER_FLAGS = [
 # libraries linked into the sanitizer runtime. These flags link against those
 # libraries.
 NO_SANITIZER_COMPAT_CFLAGS = [
-    '-pthread', '-Wl,--no-as-needed', '-Wl,-ldl', '-Wl,-lm', '-Wl,-lrt',
+    '-pthread', '-Wl,--no-as-needed', '-Wl,-ldl', '-Wl,-lm',
     '-Wno-unused-command-line-argument'
 ]
 

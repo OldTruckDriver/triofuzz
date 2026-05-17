@@ -3,6 +3,10 @@
 #include <cxxabi.h>
 #include <dlfcn.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <pthread.h>
+#include <cstdio>
+#include <cerrno>
 #include <sys/wait.h>
 #include <sys/utsname.h>
 #include <fstream>
@@ -34,11 +38,74 @@ static const std::map<int, std::string> signal_names = {
 // Static instance pointer and signal handler
 static EnhancedCrashTracker* g_tracker_instance = nullptr;
 
+// In-process crash recovery: when set, signal handlers siglongjmp here
+// instead of letting the signal kill the process. See header for the protocol.
+thread_local sigjmp_buf tls_target_jmp_buf;
+thread_local bool tls_in_target_execution = false;
+
+// Optional: magma-compatible findings/crashes/ dir. When set, crashing
+// inputs are saved here so the magma harness can count and reproduce bugs.
+// The plain C buffer is what the signal handler reads — std::string here
+// is just for the public API and not async-signal-safe.
+static std::mutex g_findings_dir_mutex;
+static std::string g_findings_crashes_dir;
+static char g_findings_crashes_dir_c[512] = {0};
+static std::atomic<uint64_t> g_findings_crash_counter{0};
+
+void setFindingsCrashesDir(const std::string& dir) {
+    std::lock_guard<std::mutex> lock(g_findings_dir_mutex);
+    g_findings_crashes_dir = dir;
+    // Mirror to a plain C buffer so the signal handler can use it safely
+    // without locking or std::string allocation.
+    std::snprintf(g_findings_crashes_dir_c, sizeof(g_findings_crashes_dir_c),
+                  "%s", dir.c_str());
+}
+
+void saveCrashingInputForMagma(const std::vector<uint8_t>& input, int sig) {
+    if (g_findings_crashes_dir_c[0] == 0 || input.empty()) return;
+
+    uint64_t n = g_findings_crash_counter.fetch_add(1) + 1;
+    char path[640];
+    std::snprintf(path, sizeof(path),
+                  "%s/crash-sig%d-%06llu-%d-%lu",
+                  g_findings_crashes_dir_c, sig,
+                  (unsigned long long)n,
+                  (int)getpid(),
+                  (unsigned long)pthread_self());
+
+    int fd = ::open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) return;
+    size_t written = 0;
+    while (written < input.size()) {
+        ssize_t r = ::write(fd, input.data() + written, input.size() - written);
+        if (r <= 0) break;
+        written += (size_t)r;
+    }
+    ::close(fd);
+}
+
 static void enhanced_signal_handler(int sig, siginfo_t* info, void* context) {
+    // If the crash happened inside the target (LLVMFuzzerTestOneInput),
+    // record it and longjmp back to the executor so we keep fuzzing.
+    // Crashes outside the target (engine itself) fall through to the
+    // legacy die-and-restart path.
+    if (tls_in_target_execution) {
+        // Best-effort crash report + magma save. Both are guarded against
+        // recursion / shutdown internally.
+        if (g_tracker_instance) {
+            g_tracker_instance->handleCrash(sig, info, context);
+        }
+        // Reset flag *before* longjmp; control returns to sigsetjmp call site
+        // with `sig` as the return value.
+        tls_in_target_execution = false;
+        siglongjmp(tls_target_jmp_buf, sig);
+        // unreachable
+    }
+
     if (g_tracker_instance) {
         g_tracker_instance->handleCrash(sig, info, context);
     }
-    
+
     // Fall back to the default signal handler
     signal(sig, SIG_DFL);
     raise(sig);

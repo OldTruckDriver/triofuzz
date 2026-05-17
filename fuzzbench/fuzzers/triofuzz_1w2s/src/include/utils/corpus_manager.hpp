@@ -55,7 +55,10 @@ class CorpusManager {
 public:
     // Configuration
     struct Config {
-        size_t max_corpus_size = 10000;
+        // Raised 10000 -> 50000 so long 24h+ runs on complex benchmarks
+        // (harfbuzz, mbedtls, x509) do not hit emergency pruning that can
+        // drop breakthrough seeds whose freshness has decayed.
+        size_t max_corpus_size = 50000;
         std::string corpus_dir = "./corpus";
         std::string crash_dir = "./crashes";
         bool enable_minimization = true;
@@ -64,13 +67,15 @@ public:
         double energy_update_rate = 0.1;
         size_t max_seed_size = 2048 * 2048; // 1MB max seed size
         bool enable_lifecycle_management = true;
-        
+
         // AFL++-style corpus optimization configuration
         bool enable_auto_optimization = true;           // Enable automatic optimization
         size_t optimization_interval_seconds = 60;      // Optimize every minute (improvement: reduced from 5 minutes)
         double corpus_bloat_threshold = 0.5;            // Corpus bloat threshold (50%) (improvement: reduced from 80%)
         size_t min_corpus_size = 100;                   // Minimum number of seeds to keep
-        size_t target_corpus_size = 5000;               // Target corpus size
+        // Raised 5000 -> 30000 so truncateToTargetSize does not aggressively
+        // shrink the corpus down to 1/10 of max during every periodic optimize.
+        size_t target_corpus_size = 30000;              // Target corpus size
         bool enable_coverage_based_optimization = true; // Coverage-based optimization
         double performance_degradation_threshold = 0.1; // Trigger optimization at 10% perf degradation (improvement: reduced from 30%)
         bool enable_aggressive_cleanup = false;         // Aggressive cleanup mode
@@ -1584,6 +1589,18 @@ public:
                 if (coverage_map.critical_edges.count(edge) || coverage_map.rare_edges.count(edge)) {
                     return true;
                 }
+                // Strengthened: also keep a seed if any of its claimed edges is
+                // covered by only a small handful (<=10) of seeds. The existing
+                // critical_edges threshold (<=3) is too tight -- once a
+                // breakthrough edge gets picked up by a 4th+ seed (via splice
+                // derivatives), the original breakthrough seed loses protection
+                // even though it is still one of very few covering it. Bumping
+                // the window to 10 keeps the genuinely rare-but-no-longer-unique
+                // seeds alive while letting truly redundant seeds be pruned.
+                auto it = coverage_map.edge_frequency.find(edge);
+                if (it != coverage_map.edge_frequency.end() && it->second <= 10) {
+                    return true;
+                }
             }
             return false;
         }
@@ -1864,23 +1881,31 @@ public:
 	            return reduction_ratio * 0.5;
 	        }
 	        
-	        // Static seed-quality scoring function
+	        // Static seed-quality scoring function (used by removeRedundantByCoverage
+	        // when tie-breaking among seeds that cover the same edge).
 	        static double calculateSeedQualityStatic(const Seed& seed) {
 	            double score = 0.0;
-	            
+
 	            // Base energy weight
 	            score += seed.energy * 0.3;
-	            
+
 	            // Coverage weight
 	            score += seed.coverage.coverage_gain * 0.4;
-	            
+
 	            // Rare-edge weight
 	            score += seed.coverage.rare_edges.size() * 0.2;
-	            
-	            // Seed age weight (prefer newer seeds)
-	            auto age = std::chrono::duration_cast<std::chrono::hours>(
+
+	            // Age weight: flattened to match calculateSeedQualityEnhanced.
+	            // Original `max(0, 1 - age/24)` dropped to 0 after 24h, which
+	            // permanently demoted any breakthrough seed older than a day.
+	            // Keep full bonus for the first 24h, gentle decay after.
+	            auto age_hours = std::chrono::duration_cast<std::chrono::hours>(
 	                std::chrono::system_clock::now() - seed.created_time).count();
-	            score += std::max(0.0, 1.0 - age / 24.0) * 0.1;
+	            double age_bonus;
+	            if (age_hours < 24) age_bonus = 1.0;
+	            else if (age_hours < 168) age_bonus = 0.9;
+	            else age_bonus = 0.7;
+	            score += age_bonus * 0.1;
 	            
             return score;
 	        }
@@ -2048,8 +2073,26 @@ public:
 	                }
 	            }
 	            
-	            // If the file count exceeds the limit, delete old files
-	            const size_t max_disk_files = 2000; // Keep at most 2000 files on disk
+	            // If the file count exceeds the limit, delete old files.
+	            //
+	            // WARNING: FuzzBench measures coverage by REPLAYING all on-disk
+	            // seeds in `/out/corpus` at snapshot time and taking the union
+	            // of edges hit. Deleting an old seed that contributed unique
+	            // edges permanently removes those edges from every subsequent
+	            // snapshot, even though the in-memory corpus and the learner's
+	            // internal state still remember them. On harfbuzz, the
+	            // in-memory corpus reached 8500+ seeds while this capped disk
+	            // at 2000 -> the FuzzBench report lost ~500-1000 edges vs what
+	            // the fuzzer had actually discovered.
+	            //
+	            // Cap is now effectively uncapped for typical runs; a 50k-seed
+	            // corpus at ~32KB/seed is ~1.6 GB, well within /out budget.
+	            // Opt in to tighter caps via TRIOFUZZ_MAX_DISK_CORPUS_FILES.
+	            size_t max_disk_files = 200000;
+	            if (const char* env = std::getenv("TRIOFUZZ_MAX_DISK_CORPUS_FILES")) {
+	                long long val = std::atoll(env);
+	                if (val > 0) max_disk_files = static_cast<size_t>(val);
+	            }
 	            if (corpus_files.size() > max_disk_files) {
 	                // Sort by modification time
 	                std::sort(corpus_files.begin(), corpus_files.end(),
@@ -2610,8 +2653,14 @@ public:
 	        
 	        // 2. Energy and execution efficiency (25%)
 	        double efficiency_score = seed.energy * 0.6;
-	        // Consider seed size (smaller seeds execute faster)
-	        double size_factor = 1.0 / (1.0 + std::log10(seed.data.size() + 1) / 5.0);
+	        // Consider seed size (smaller seeds execute faster).
+	        // Softened from /5.0 -> /20.0 to stop over-penalizing large but
+	        // structurally-valuable seeds (e.g., mbedtls/x509 DTLS handshakes
+	        // ~4KB that carry valid DER structure).
+	        //   size 100  B: 0.91 (was 0.71)
+	        //   size 4000 B: 0.84 (was 0.58)
+	        //   size 30 KB:  0.82 (was 0.53)
+	        double size_factor = 1.0 / (1.0 + std::log10(seed.data.size() + 1) / 20.0);
 	        efficiency_score += size_factor * 0.4;
 	        score += std::min(1.0, efficiency_score) * 0.25;
 	        
@@ -2630,17 +2679,21 @@ public:
 	        score += std::min(1.0, diversity_score) * 0.20;
 	        
 	        // 4. Freshness (15%)
+	        // Flattened decay: original schedule dropped to 0.1 at 24h and
+	        // 0.05 at 1 week, which systematically devalued "breakthrough
+	        // seeds" discovered 2-8h into a 24h experiment. For long runs,
+	        // old-but-valuable seeds are the corpus's most important assets,
+	        // not liabilities. Keep full freshness for the first 24h, then
+	        // decay slowly.
 	        auto age_hours = std::chrono::duration_cast<std::chrono::hours>(
 	            std::chrono::system_clock::now() - seed.created_time).count();
-	        double freshness = 0.0;
-	        if (age_hours < 1) {
-	            freshness = 1.0;  // Full score for seeds within 1 hour
-	        } else if (age_hours < 24) {
-	            freshness = 0.8 - (age_hours - 1) * 0.03;  // Linearly decays within 24 hours
-	        } else if (age_hours < 168) {  // Within one week
-	            freshness = 0.3 - (age_hours - 24) * 0.002;
+	        double freshness;
+	        if (age_hours < 24) {
+	            freshness = 1.0;
+	        } else if (age_hours < 168) {  // within a week
+	            freshness = 0.9;
 	        } else {
-	            freshness = 0.05;  // Baseline score for seeds older than one week
+	            freshness = 0.7;
 	        }
 	        score += freshness * 0.15;
 	        

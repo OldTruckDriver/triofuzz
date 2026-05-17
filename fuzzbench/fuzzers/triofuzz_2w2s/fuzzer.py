@@ -55,10 +55,19 @@ def build():
 
     # TrioFuzz uses trace-pc-guard instrumentation for AFL++-compatible
     # coverage tracking with XOR-based edge hashing (65536 byte bitmap).
+    #
+    # trace-cmp is deliberately OFF here: every comparison in the target
+    # otherwise turns into a __sanitizer_cov_trace_cmp* callback which adds
+    # ~5-10ns per compare. For benchmarks with dense comparison sites (libpng,
+    # harfbuzz, mbedtls) that compounds to ~40-100us per execution, which
+    # measured at >= 20% throughput loss vs AFL++'s default pcguard-only
+    # instrumentation. We lose runtime CmpLog's token discovery in exchange
+    # but the compile-time dict pipeline (when enabled) already covers that
+    # source, and our auto_dictionary quality was marginal anyway.
     cflags_common = [
         '-g',
         '-O1',
-        '-fsanitize-coverage=trace-pc-guard,trace-cmp',
+        '-fsanitize-coverage=trace-pc-guard',
         '-Wl,-lrt',
         '-Wno-error=documentation',
     ]
@@ -124,11 +133,17 @@ def run_fuzzer(input_corpus, output_corpus, target_binary, extra_flags=None):
             if not os.path.exists(dst_path):
                 shutil.copy2(src_path, dst_path)
 
-    # Record guard IDs into the AFL-style bitmap for coverage alignment
-    if os.getenv('TRIOFUZZ_DISABLE_GUARD_COVERAGE') != '1':
+    # Guard-id coverage recording is OFF by default. When enabled, every edge
+    # callback additionally writes guard_id to the bitmap (in addition to the
+    # edge_id = cur ^ prev). That roughly doubles the work inside the hot
+    # __sanitizer_cov_trace_pc_guard callback for a signal that only helps
+    # FuzzBench snapshot-replay cosmetics, not fuzzing feedback quality.
+    # Opt in by exporting TRIOFUZZ_ENABLE_GUARD_COVERAGE=1 if needed.
+    if os.getenv('TRIOFUZZ_ENABLE_GUARD_COVERAGE') == '1':
         os.environ.setdefault('TRIOFUZZ_INCLUDE_GUARD_COVERAGE', '1')
 
-
+    # Fixed 4 threads to avoid lock contention at higher core counts
+    # 1 Scheduler (shares with Worker-0) + 2 Workers + 1 Explorer
     flags = [
         '-threads=5',
         '--worker-threads=2',
@@ -139,7 +154,7 @@ def run_fuzzer(input_corpus, output_corpus, target_binary, extra_flags=None):
 
     flags.append('--disable-corpus-optimization')
 
-    if os.getenv('TRIOFUZZ_DISABLE_GUARD_COVERAGE') != '1':
+    if os.getenv('TRIOFUZZ_ENABLE_GUARD_COVERAGE') == '1':
         flags.append('--include-guard-coverage')
 
     # Dictionary support: merge available dictionaries

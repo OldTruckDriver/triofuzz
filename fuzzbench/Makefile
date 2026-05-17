@@ -14,6 +14,8 @@
 
 # Running experiments locally.
 
+export DOCKER_API_VERSION := 1.44
+
 run-experiment stop-experiment: export COMPOSE_PROJECT_NAME := fuzzbench
 run-experiment stop-experiment: export COMPOSE_FILE := compose/fuzzbench.yaml
 run-experiment:
@@ -49,7 +51,7 @@ VENV_ACTIVATE := .venv/bin/activate
 
 ${VENV_ACTIVATE}: requirements.txt
 	python3.10 -m venv .venv || python3 -m venv .venv
-	source ${VENV_ACTIVATE} && python3 -m pip install --upgrade pip "setuptools<81" && python3 -m pip install -r requirements.txt
+	source ${VENV_ACTIVATE} && python3 -m pip install --upgrade pip 'setuptools<81' && python3 -m pip install -r requirements.txt
 
 install-dependencies: ${VENV_ACTIVATE}
 

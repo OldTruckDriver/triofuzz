@@ -57,13 +57,9 @@ class BaseMeasureWorker:
                 'Measurer worker: Got request %s %s %d %d from request queue',
                 request.fuzzer, request.benchmark, request.trial_id,
                 request.cycle)
-            measured_snapshot = None
-            try:
-                measured_snapshot = measure_manager.measure_snapshot_coverage(
-                    request.fuzzer, request.benchmark, request.trial_id,
-                    request.cycle, self.region_coverage)
-            except:
-                import traceback; traceback.print_exc()
+            measured_snapshot = measure_manager.measure_snapshot_coverage(
+                request.fuzzer, request.benchmark, request.trial_id,
+                request.cycle, self.region_coverage)
             self.put_result_in_response_queue(measured_snapshot, request)
             time.sleep(MEASUREMENT_TIMEOUT)
 

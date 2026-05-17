@@ -21,8 +21,12 @@ RUN apt-get update && \
     make \
     cmake
 
-RUN git clone --depth 1 https://github.com/jbeder/yaml-cpp.git $SRC/yaml-cpp/
-RUN git clone --depth 1 https://github.com/initializedd/yaml-cpp-fuzzer.git $SRC/yaml-cpp-fuzzer/
+RUN git clone https://github.com/jbeder/yaml-cpp.git $SRC/yaml-cpp/ && \
+    cd $SRC/yaml-cpp && \
+    git checkout a83cd31548b19d50f3f983b069dceb4f4d50756d
+RUN git clone https://github.com/initializedd/yaml-cpp-fuzzer.git $SRC/yaml-cpp-fuzzer/ && \
+    cd $SRC/yaml-cpp-fuzzer && \
+    git checkout 67e08ba37941b43b06734a6d9014a29935b0daf5
 
 # Fix incompatibility with newer FuzzedDataProvider where copy construction is
 # deleted by switching to direct initialization.

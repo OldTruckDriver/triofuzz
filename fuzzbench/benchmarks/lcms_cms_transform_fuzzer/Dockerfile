@@ -14,7 +14,7 @@
 #
 ################################################################################
 
-FROM gcr.io/oss-fuzz-base/base-builder
+FROM gcr.io/oss-fuzz-base/base-builder@sha256:87ca1e9e19235e731fac8de8d1892ebe8d55caf18e7aa131346fc582a2034fdd
 
 RUN apt-get update && \
     apt-get install -y \
@@ -23,7 +23,8 @@ RUN apt-get update && \
     libtool \
     wget
 
-RUN git clone https://github.com/mm2/Little-CMS.git
+RUN git clone https://github.com/mm2/Little-CMS.git && \
+    git -C Little-CMS checkout f0d963261b28253999e239a844ac74d5a8960f40
 
 RUN wget -qO $OUT/cms_transform_fuzzer.dict \
     https://raw.githubusercontent.com/google/fuzzing/master/dictionaries/icc.dict

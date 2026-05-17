@@ -17,7 +17,11 @@
 FROM gcr.io/oss-fuzz-base/base-builder
 RUN apt-get update && apt-get install -y make autoconf automake libtool \
   pkg-config libssl-dev
-RUN git clone --depth 1 https://gitlab.kitware.com/cmake/cmake CMake
-RUN git clone --depth 1 https://github.com/strongcourage/fuzzing-corpus
+RUN git clone https://gitlab.kitware.com/cmake/cmake CMake && \
+    cd CMake && \
+    git checkout dea6b14379a94105d0e69170080e99290c114cfb
+RUN git clone https://github.com/strongcourage/fuzzing-corpus && \
+    cd fuzzing-corpus && \
+    git checkout d5aaf2c8654592f65e8792d12800317200446e7c
 WORKDIR CMake
 COPY build.sh xml_parser_fuzzer.cc $SRC/

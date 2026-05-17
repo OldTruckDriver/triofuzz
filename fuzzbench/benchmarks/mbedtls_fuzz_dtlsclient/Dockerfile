@@ -14,15 +14,17 @@
 #
 ################################################################################
 
-FROM gcr.io/oss-fuzz-base/base-builder
+FROM gcr.io/oss-fuzz-base/base-builder@sha256:87ca1e9e19235e731fac8de8d1892ebe8d55caf18e7aa131346fc582a2034fdd
 RUN apt-get update && apt-get install -y make cmake
 RUN apt-get update && apt-get install -y \
     python-all-dev \
     python3-all-dev \
     python3-pip  && \
-    ln -sf /usr/local/bin/pip3 /usr/local/bin/pip
+    ln -s /usr/local/bin/pip3 /usr/local/bin/pip
 
-RUN git clone --recursive -b development https://github.com/Mbed-TLS/mbedtls.git mbedtls
+RUN git clone --recursive -b development https://github.com/Mbed-TLS/mbedtls.git mbedtls && \
+    git -C mbedtls checkout 169d9e6eb4096cb48aa25651f42b276089841087 && \
+    git -C mbedtls submodule update --init --recursive
 
 RUN git clone --depth 1 https://github.com/google/boringssl.git boringssl
 RUN git clone --recursive https://github.com/openssl/openssl.git openssl

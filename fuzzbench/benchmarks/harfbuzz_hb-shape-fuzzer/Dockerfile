@@ -14,12 +14,13 @@
 #
 ################################################################################
 
-FROM gcr.io/oss-fuzz-base/base-builder
+FROM gcr.io/oss-fuzz-base/base-builder@sha256:87ca1e9e19235e731fac8de8d1892ebe8d55caf18e7aa131346fc582a2034fdd
 
 RUN apt-get update && \
     apt-get install -y ragel pkg-config
 
-RUN git clone https://github.com/harfbuzz/harfbuzz.git
+RUN git clone https://github.com/harfbuzz/harfbuzz.git && \
+    git -C harfbuzz checkout cb47dca74cbf6d147aac9cf3067f249555aa68b1
 
 WORKDIR harfbuzz
 COPY build.sh $SRC/

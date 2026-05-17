@@ -14,7 +14,7 @@
 #
 ################################################################################
 
-FROM gcr.io/oss-fuzz-base/base-builder
+FROM gcr.io/oss-fuzz-base/base-builder@sha256:87ca1e9e19235e731fac8de8d1892ebe8d55caf18e7aa131346fc582a2034fdd
 
 RUN apt-get update && \
     apt-get install -y \
@@ -26,7 +26,8 @@ RUN apt-get update && \
 RUN git clone https://github.com/google/brotli.git && \
     git -C brotli checkout 3a9032ba8733532a6cd6727970bade7f7c0e2f52
 
-RUN git clone https://github.com/google/woff2.git
+RUN git clone https://github.com/google/woff2.git && \
+    git -C woff2 checkout 8109a2cc2b27436962ac1cfe40ad0e8a0dca26c8
 
 # Get seeds.
 RUN git clone https://github.com/google/oss-fuzz.git && \
