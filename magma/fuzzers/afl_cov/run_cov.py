@@ -25,14 +25,14 @@ def main():
     if not target.exists():
         raise FileNotFoundError(f"Target executable not found: {target}")
 
-    # 清理旧的 profraw，包括 default.profraw
+    # Clean up old profraw files, including default.profraw
     for old in Path(".").glob("*.profraw"):
         print(f"[CLEAN] remove old profraw: {old}")
         old.unlink()
 
     profraw_list = []
 
-    # 对 corpus 里的每个 input 跑一次
+    # Run once for each input in the corpus
     for inp in sorted(corpus.iterdir()):
         if inp.is_file():
             profraw = f"{inp.name}.profraw"
@@ -41,7 +41,7 @@ def main():
             env["LLVM_PROFILE_FILE"] = profraw
 
             print(f"\n=== Running {target} with input: {inp} ===")
-            # 这里一定要传 env !!!
+            # The env argument MUST be passed here!
             run_cmd([str(target), str(inp)], env=env)
 
             profraw_list.append(profraw)
@@ -50,13 +50,13 @@ def main():
         print("No input files found in corpus, nothing to do.")
         return
 
-    # 合并 profraw
+    # Merge profraw files
     merged_file = "merged.profdata"
     merge_cmd = ["llvm-profdata", "merge", "-sparse"] + profraw_list + ["-o", merged_file]
     print("\n=== Merging profraw files ===")
     run_cmd(merge_cmd)
 
-    # 生成 HTML 报告
+    # Generate the HTML report
     print("\n=== Generating HTML report ===")
     run_cmd([
         "llvm-cov", "show", str(target),
