@@ -16,7 +16,7 @@ mkdir -p "$SHARED/findings"
 export LLVM_PROFILE_FILE="$SHARED/default.profraw"
 
 # TrioFuzz environment settings
-export COLLABFUZZ_DISABLE_DISK_SAVE=1
+# export TRIOFUZZ_DISABLE_DISK_SAVE=1
 
 # TrioFuzz command-line arguments
 # Format: -key=value or --key=value (similar to libFuzzer/CollabFuzz)

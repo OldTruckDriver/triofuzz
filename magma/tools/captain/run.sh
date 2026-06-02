@@ -260,9 +260,12 @@ for FUZZER in "${FUZZERS[@]}"; do
 
             echo_time "Starting campaigns for $PROGRAM $ARGS"
             for ((i=0; i<$REPEAT; i++)); do
-                # Set CPU count based on fuzzer type: collabfuzz gets 4 CPUs, others get 1
+                # Set CPU count based on fuzzer type: collabfuzz/triofuzz are
+                # multi-threaded and get CAMPAIGN_WORKERS CPUs; others get 1
                 if [ "$FUZZER" = "collabfuzz" ]; then
                     export NUMWORKERS=4
+                elif [ "$FUZZER" = "triofuzz" ]; then
+                    export NUMWORKERS=${CAMPAIGN_WORKERS:-4}
                 else
                     export NUMWORKERS=1
                 fi

@@ -17,6 +17,7 @@
 #include <thread>
 #include <iomanip>
 #include <signal.h>
+#include <setjmp.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <future>
@@ -58,6 +59,17 @@ bool saveRealCoverageEdges(const std::string& output_path);  // Save coverage ed
 #endif
 
 namespace {
+
+// In-process crash recovery state. Each executing thread arms a jump point
+// (sigsetjmp) before invoking the target; if the target faults
+// (SIGSEGV/SIGFPE/...), the crash handler siglongjmp()s back instead of letting
+// the signal kill the whole fuzzer process. Thread-local because
+// workers/explorers execute targets concurrently and a synchronous fault is
+// delivered to the faulting thread. Defined here (inside the anonymous
+// namespace, before InProcessExecutor and global_crash_handler) so both see the
+// same internal-linkage objects within this translation unit.
+thread_local sigjmp_buf g_target_exec_jmp_buf;
+thread_local volatile sig_atomic_t g_target_exec_active = 0;
 
 // Default configuration
 struct triofuzzConfig default_config = {
@@ -246,6 +258,27 @@ public:
         // Update global current input variable for crash handler
         g_current_fuzzing_input = input;
 
+        // Arm in-process crash recovery before invoking the target. If the
+        // target faults, the crash handler siglongjmp()s back here with the
+        // signal number, so we record a Crash result and keep fuzzing instead
+        // of letting the signal tear down the whole process. sigsetjmp(.,1)
+        // saves the signal mask so the blocked fault signal is unblocked on
+        // return, allowing subsequent crashes to be caught again.
+        int crash_sig = sigsetjmp(g_target_exec_jmp_buf, 1);
+        if (crash_sig != 0) {
+            g_target_exec_active = 0;
+            auto end_time = std::chrono::high_resolution_clock::now();
+            auto us = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
+            result.status = triofuzz::ExecutionResult::Status::Crash;
+            result.crash_info.push_back("Target crashed with signal " + std::to_string(crash_sig));
+            result.performance.execution_time_ms = static_cast<double>(us) / 1000.0;
+            result.performance.memory_usage_bytes = input.size();
+            result.output = input;
+            result.input_data = input;
+            return result;
+        }
+        g_target_exec_active = 1;
+
         try {
             // Direct execution, no thread pool overhead
             int ret = wrapper_.execute(input);
@@ -289,6 +322,9 @@ public:
             result.performance.execution_time_ms = static_cast<double>(us) / 1000.0;
             result.performance.memory_usage_bytes = input.size();
         }
+
+        // Disarm the recovery jump point now that the target call has returned.
+        g_target_exec_active = 0;
 
         return result;
     }
@@ -640,33 +676,44 @@ static std::atomic<bool> g_crash_handler_installed{false};
 
 // Global crash handler - uses the enhanced crash tracker
 void global_crash_handler(int sig, siginfo_t* info, void* context) {
-    // Avoid complex operations in signal handler
+    // Serialize crash-report writing across threads. Only the first thread to
+    // arrive writes the report; concurrently-faulting threads skip the report
+    // but still recover (below) so we never lose a worker to a duplicate crash.
     static std::atomic<bool> crash_in_progress{false};
 
-    // Prevent recursive crashes
-    if (crash_in_progress.exchange(true)) {
-        _exit(1);
+    if (!crash_in_progress.exchange(true)) {
+        try {
+            // Use enhanced crash tracker to handle crash
+            auto& tracker = collafuzz::crash_tracker::EnhancedCrashTracker::getInstance();
+            tracker.handleCrash(sig, info, context);
+
+            // Output simple message to stderr
+            char crash_msg[256];
+            std::snprintf(crash_msg, sizeof(crash_msg),
+                         "[TrioFuzz] Enhanced crash handler: Signal %d, comprehensive report generated\n",
+                         sig);
+            write(STDERR_FILENO, crash_msg, strlen(crash_msg));
+
+        } catch (...) {
+            // If enhanced tracker fails, fall back to simple handling
+            char fallback_msg[] = "[TrioFuzz] Enhanced crash handler failed, signal caught\n";
+            write(STDERR_FILENO, fallback_msg, strlen(fallback_msg));
+        }
+        // Release the report lock so future crashes can be recorded too.
+        crash_in_progress.store(false);
     }
 
-    try {
-        // Use enhanced crash tracker to handle crash
-        auto& tracker = collafuzz::crash_tracker::EnhancedCrashTracker::getInstance();
-        tracker.handleCrash(sig, info, context);
-
-        // Output simple message to stderr
-        char crash_msg[256];
-        std::snprintf(crash_msg, sizeof(crash_msg),
-                     "[TrioFuzz] Enhanced crash handler: Signal %d, comprehensive report generated\n",
-                     sig);
-        write(STDERR_FILENO, crash_msg, strlen(crash_msg));
-
-    } catch (...) {
-        // If enhanced tracker fails, fall back to simple handling
-        char fallback_msg[] = "[TrioFuzz] Enhanced crash handler failed, signal caught\n";
-        write(STDERR_FILENO, fallback_msg, strlen(fallback_msg));
+    // In-process recovery: if this thread faulted while executing the target,
+    // jump back into the executor and keep fuzzing instead of dying. This is
+    // what keeps crash-dense targets (e.g. libpng/libsndfile) productive rather
+    // than thrashing in a process-restart loop.
+    if (g_target_exec_active) {
+        g_target_exec_active = 0;
+        siglongjmp(g_target_exec_jmp_buf, sig);
     }
 
-    // Restore default handler and re-raise the signal
+    // Otherwise the fault is in the engine itself (not target execution):
+    // restore the default handler and re-raise so we fail loudly.
     signal(sig, SIG_DFL);
     raise(sig);
 }

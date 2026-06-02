@@ -25,13 +25,13 @@ export EXTRA_CXXFLAGS="$CXXFLAGS -fno-sanitize=object-size"
 SAVED_LDFLAGS="$LDFLAGS"
 SAVED_LIBS="$LIBS"
 
-# Extract libraries needed for sapi/cli/php (magma.o but not collabfuzz)
-# sapi/cli/php needs magma_log but has its own main(), so it shouldn't link collabfuzz
-LIBS_FOR_CLI=$(echo "$SAVED_LIBS" | sed 's/-lcollabfuzz\b//g' | sed 's/  */ /g' | sed 's/^ *//;s/ *$//')
+# Extract libraries needed for sapi/cli/php (magma.o but not triofuzz)
+# sapi/cli/php needs magma_log but has its own main(), so it shouldn't link triofuzz
+LIBS_FOR_CLI=$(echo "$SAVED_LIBS" | sed 's/-ltriofuzz\b//g' | sed 's/  */ /g' | sed 's/^ *//;s/ *$//')
 
 # Clear CFLAGS, CXXFLAGS, LDFLAGS, and LIBS during configure
 # Configure scripts test the compiler with these flags, and they may fail
-# if libraries (like -lcollabfuzz or -l:magma.o) don't exist yet or flags are incompatible
+# if libraries (like -ltriofuzz or -l:magma.o) don't exist yet or flags are incompatible
 unset CFLAGS
 unset CXXFLAGS
 unset LDFLAGS
@@ -40,8 +40,8 @@ unset LIBS
 #build the php library
 ./buildconf
 # LIB_FUZZING_ENGINE is used as FUZZING_LIB in the fuzzer link command
-# We need to set it to the actual libraries (magma.o and collabfuzz)
-# But we can't use $SAVED_LIBS during configure because it contains -lcollabfuzz
+# We need to set it to the actual libraries (magma.o and triofuzz)
+# But we can't use $SAVED_LIBS during configure because it contains -ltriofuzz
 # which doesn't exist yet. So we set it to a placeholder first, then update it after configure.
 LIB_FUZZING_ENGINE="-Wall" ./configure \
     --disable-all \
@@ -61,8 +61,8 @@ export LDFLAGS="$SAVED_LDFLAGS"
 export LIBS="$SAVED_LIBS"
 
 # Update Makefile variables for linking
-# EXTRA_LIBS is used by sapi/cli/php - needs magma.o but NOT collabfuzz (has own main)
-# FUZZING_LIB is used by fuzzer - needs both magma.o AND collabfuzz (provides main)
+# EXTRA_LIBS is used by sapi/cli/php - needs magma.o but NOT triofuzz (has own main)
+# FUZZING_LIB is used by fuzzer - needs both magma.o AND triofuzz (provides main)
 # Use := for immediate expansion to prevent Make from parsing library names as targets
 # Also escape $ signs in the library strings to prevent Make variable expansion
 # IMPORTANT: We must preserve existing EXTRA_LIBS (which includes MBSTRING_SHARED_LIBADD with oniguruma)
@@ -168,7 +168,7 @@ make -j$(nproc) clean
 # build oniguruma and link statically
 pushd oniguruma
 autoreconf -vfi
-# Clear LDFLAGS/LIBS for oniguruma configure (it's a static library, doesn't need collabfuzz)
+# Clear LDFLAGS/LIBS for oniguruma configure (it's a static library, doesn't need triofuzz)
 # Note: We don't restore them for oniguruma make since it's just a static library
 unset LDFLAGS
 unset LIBS

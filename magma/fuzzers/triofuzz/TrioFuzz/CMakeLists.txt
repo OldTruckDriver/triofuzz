@@ -4,15 +4,15 @@ project(TrioFuzz VERSION 1.0.0 LANGUAGES C CXX)
 # TrioFuzz: Unified Multi-Algorithm Fuzzer
 # Integrates Thompson Sampling + MOpt PSO + MuoFuzz Markov Chain
 
-# Set C++ standard
+# 设置C++标准
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Set compiler options
+# 设置编译器选项
 set(CMAKE_CXX_FLAGS_DEBUG "-g -O1 -DDEBUG")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 
-# Optional: enable fine-grained performance instrumentation (introduces extra overhead)
+# 可选：启用细粒度性能插装（会带来额外开销）
 option(ENABLE_DETAILED_PERF "Enable detailed per-iteration perf instrumentation" OFF)
 if(ENABLE_DETAILED_PERF)
     add_compile_definitions(ENABLE_DETAILED_PERF=1)
@@ -20,31 +20,31 @@ else()
     add_compile_definitions(ENABLE_DETAILED_PERF=0)
 endif()
 
-# Add necessary compiler macros and flags to fix standard library issues
+# 添加必要的编译器宏和标志来修复标准库问题
 add_compile_definitions(_GNU_SOURCE)
 add_compile_definitions(_GLIBCXX_USE_C99)
 add_compile_definitions(_GLIBCXX_USE_C99_STDINT_TR1)
 
-# Detect compiler type and set corresponding coverage flags
+# 检测编译器类型并设置相应的覆盖率标志
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    # Clang compiler: use trace-pc-guard
+    # Clang编译器：使用trace-pc-guard
     set(COVERAGE_FLAGS "-fsanitize-coverage=trace-pc-guard")
     message(STATUS "Using Clang compiler with trace-pc-guard coverage")
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    # GCC compiler: use trace-pc as an alternative
+    # GCC编译器：使用trace-pc作为替代
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ftemplate-backtrace-limit=0")
     set(COVERAGE_FLAGS "-fsanitize-coverage=trace-pc")
     message(STATUS "Using GCC compiler with trace-pc coverage")
 else()
-    # Other compilers: no coverage by default
+    # 其他编译器：默认不使用覆盖率
     set(COVERAGE_FLAGS "")
     message(WARNING "Unknown compiler: ${CMAKE_CXX_COMPILER_ID}. Coverage instrumentation may not work.")
 endif()
 
-# Export coverage flags for user target code
+# 为用户目标代码导出覆盖率标志
 set(TRIOFUZZ_COVERAGE_FLAGS "${COVERAGE_FLAGS}" CACHE STRING "Coverage flags for target compilation")
 
-# Find dependency packages
+# 查找依赖包
 find_package(Threads REQUIRED)
 
 # Use local json.hpp from external/include (single-header version)
@@ -54,18 +54,18 @@ target_include_directories(nlohmann_json INTERFACE ${CMAKE_SOURCE_DIR}/external/
 add_library(nlohmann_json::nlohmann_json ALIAS nlohmann_json)
 message(STATUS "Using local nlohmann/json.hpp from external/include")
 
-# Include directories
+# 包含目录
 include_directories(${CMAKE_SOURCE_DIR}/include)
 include_directories(${CMAKE_SOURCE_DIR}/external/include)
 
-# Create library target
-# Collect all source files
-# Note: src/core/*.cpp contains:
-#   - fuzzing_engine.cpp (main engine implementation)
-#   - specialized_thread_engine.cpp (dedicated thread architecture implementation)
-#   - engine_thread_helpers.cpp (thread-safe helper classes)
-#   - other core components
-# Removed: fuzzing_engine_with_unified.cpp (legacy version, archived)
+# 创建库目标
+# 收集所有源文件
+# 注意: src/core/*.cpp 包含:
+#   - fuzzing_engine.cpp (主引擎实现)
+#   - specialized_thread_engine.cpp (专职线程架构实现)
+#   - engine_thread_helpers.cpp (线程安全辅助类)
+#   - 其他核心组件
+# 已移除: fuzzing_engine_with_unified.cpp (旧版本，已归档)
 file(GLOB_RECURSE TRIOFUZZ_SOURCES
     "src/types/*.cpp"
     "src/core/*.cpp"
@@ -75,16 +75,16 @@ file(GLOB_RECURSE TRIOFUZZ_SOURCES
     "src/ui/*.cpp"
 )
 
-# Exclude files in the archive directory (non-default code has been moved to archive/)
+# 排除归档目录中的文件（非默认设置的代码已移至 archive/）
 list(FILTER TRIOFUZZ_SOURCES EXCLUDE REGEX ".*/archive/.*")
 
-# Remove main.cpp from the library source files
+# 移除main.cpp从库源文件中
 list(REMOVE_ITEM TRIOFUZZ_SOURCES "${CMAKE_SOURCE_DIR}/src/main.cpp")
 
-# Exclude the TUI main program file (to avoid multiple main function conflicts)
+# 排除TUI主程序文件（避免多个main函数冲突）
 list(REMOVE_ITEM TRIOFUZZ_SOURCES "${CMAKE_SOURCE_DIR}/src/ui/tui_main.cpp")
 
-# Additional source files (not in the GLOB paths, or need to be added explicitly)
+# 额外的源文件（不在 GLOB 路径中，或需要显式添加）
 set(ADDITIONAL_SOURCES
     "${CMAKE_SOURCE_DIR}/src/core/state_manager.cpp"
     "${CMAKE_SOURCE_DIR}/src/core/engine_thread_helpers.cpp"
@@ -95,40 +95,40 @@ set(ADDITIONAL_SOURCES
     "${CMAKE_SOURCE_DIR}/src/algorithms/optimization/pso_specialization.cpp"
     "${CMAKE_SOURCE_DIR}/src/utils/random_utils.cpp"
 
-    # Interface files
+    # 接口文件
     "${CMAKE_SOURCE_DIR}/src/interface/triofuzz_main.cpp"
 
-    # Retained algorithm source files
+    # 保留的算法源文件
     "${CMAKE_SOURCE_DIR}/src/algorithms/mutation/redqueen_mutation.cpp"
     "${CMAKE_SOURCE_DIR}/src/algorithms/scheduling/rare_edge_scheduler.cpp"
 )
 
-# Create the TrioFuzz library
+# 创建TrioFuzz库
 add_library(triofuzz_lib STATIC ${TRIOFUZZ_SOURCES} ${ADDITIONAL_SOURCES})
 set_target_properties(triofuzz_lib PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-# Create the main TrioFuzz library (includes the main function) - users link against this library
-add_library(triofuzz STATIC
+# 创建TrioFuzz主库（包含main函数）- 用户链接这个库
+add_library(triofuzz STATIC 
     ${TRIOFUZZ_SOURCES}
     "${CMAKE_SOURCE_DIR}/src/interface/triofuzz_main.cpp"
 )
 set_target_properties(triofuzz PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-# Create an OBJECT library to produce .o files
+# 创建OBJECT库来生成.o文件
 add_library(triofuzz_objects OBJECT ${TRIOFUZZ_SOURCES} ${ADDITIONAL_SOURCES})
 set_target_properties(triofuzz_objects PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-# Apply the same compile options and link dependencies to the OBJECT library
+# 为OBJECT库添加同样的编译选项和链接依赖
 target_compile_definitions(triofuzz_objects PRIVATE $<TARGET_PROPERTY:triofuzz_lib,COMPILE_DEFINITIONS>)
 target_include_directories(triofuzz_objects PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/external/include)
 
-# Check whether an extra math library is needed
+# 检查是否需要额外的数学库
 find_library(MATH_LIBRARY m)
 if(MATH_LIBRARY)
     set(EXTRA_LIBS ${MATH_LIBRARY})
 endif()
 
-# Find OpenSSL (used by the enhanced crash tracker)
+# 查找OpenSSL库（用于增强的crash追踪器）
 find_package(OpenSSL REQUIRED)
 if(OpenSSL_FOUND)
     set(EXTRA_LIBS ${EXTRA_LIBS} OpenSSL::Crypto)
@@ -137,26 +137,26 @@ else()
     message(FATAL_ERROR "OpenSSL is required for enhanced crash tracking")
 endif()
 
-# Find libdl (used for symbol resolution)
+# 查找libdl库（用于符号解析）
 find_library(DL_LIBRARY dl)
 if(DL_LIBRARY)
     set(EXTRA_LIBS ${EXTRA_LIBS} ${DL_LIBRARY})
 endif()
 
-# Find librt (used for shared memory operations)
+# 查找librt库（用于共享内存操作）
 find_library(RT_LIBRARY rt)
 if(RT_LIBRARY)
     set(EXTRA_LIBS ${EXTRA_LIBS} ${RT_LIBRARY})
 endif()
 
-# Link the threading library and JSON library to all libraries
+# 链接线程库和JSON库到所有库
 target_link_libraries(triofuzz_lib Threads::Threads ${EXTRA_LIBS})
 target_link_libraries(triofuzz Threads::Threads ${EXTRA_LIBS})
 
 if(TARGET nlohmann_json::nlohmann_json)
     target_link_libraries(triofuzz_lib nlohmann_json::nlohmann_json)
     target_link_libraries(triofuzz nlohmann_json::nlohmann_json)
-    # Add JSON include directories to the OBJECT library
+    # 为OBJECT库添加JSON的include目录
     get_target_property(JSON_INCLUDE_DIRS nlohmann_json::nlohmann_json INTERFACE_INCLUDE_DIRECTORIES)
     if(JSON_INCLUDE_DIRS)
         target_include_directories(triofuzz_objects PRIVATE ${JSON_INCLUDE_DIRS})
@@ -164,47 +164,47 @@ if(TARGET nlohmann_json::nlohmann_json)
 else()
     target_link_libraries(triofuzz_lib nlohmann_json)
     target_link_libraries(triofuzz nlohmann_json)
-    # Add JSON include directories to the OBJECT library (if available)
+    # 为OBJECT库添加JSON的include目录（如果能找到的话）
     find_path(NLOHMANN_JSON_INCLUDE_DIR nlohmann/json.hpp)
     if(NLOHMANN_JSON_INCLUDE_DIR)
         target_include_directories(triofuzz_objects PRIVATE ${NLOHMANN_JSON_INCLUDE_DIR})
     endif()
 endif()
 
-# Create the main executable (for development and testing)
+# 创建主可执行文件（用于开发测试）
 add_executable(triofuzz_test
     src/interface/triofuzz_main.cpp
-    src/interface/dummy_fuzzer.cpp  # Add the dummy fuzzer implementation
+    src/interface/dummy_fuzzer.cpp  # 添加虚拟fuzzer实现
 )
 target_link_libraries(triofuzz_test triofuzz_lib)
-# Add compiler-specific profile options
+# 添加编译器特定的profile选项
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    # Clang compiler: use the LLVM profile runtime
+    # Clang编译器：使用LLVM profile runtime
     target_compile_options(triofuzz_test PRIVATE -fprofile-instr-generate)
     target_link_options(triofuzz_test PRIVATE -fprofile-instr-generate)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    # GCC compiler: use GCC profile options
+    # GCC编译器：使用GCC profile选项
     target_compile_options(triofuzz_test PRIVATE -fprofile-generate)
     target_link_options(triofuzz_test PRIVATE -fprofile-generate)
 endif()
 
 
-# Add safe-version macro interface test
+# 添加安全版本的宏接口测试
 # add_executable(test_collaborative_macro experiment/drivers/test_collaborative_macro.cpp)
 # target_link_libraries(test_collaborative_macro triofuzz_lib)
 
-# Add coverage instrumentation for test_collaborative_macro
+# 为test_collaborative_macro添加覆盖率插装
 # if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 #     target_compile_options(test_collaborative_macro PRIVATE -fsanitize-coverage=trace-pc-guard)
 #     target_link_options(test_collaborative_macro PRIVATE -fsanitize-coverage=trace-pc-guard)
 # elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-#     # GCC: rely on the coverage collection implementation in fuzzing_engine.cpp
+#     # GCC: 使用 fuzzing_engine.cpp 中的覆盖率收集实现
 #     # target_compile_options(test_collaborative_macro PRIVATE -fprofile-generate -fprofile-update=atomic)
 #     # target_link_options(test_collaborative_macro PRIVATE -fprofile-generate)
 # endif()
 
 
-# Add compiler-specific optimization options
+# 添加编译器特定的优化选项
 # Note: -march=native is not supported on ARM Clang, use portable optimization instead
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     # Check if -march=native is supported (not on ARM Clang)
@@ -223,40 +223,40 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     endif()
 endif()
 
-# Add extra compiler flags for neural-network algorithms
+# 为神经网络算法添加额外的编译器标志
 if(CMAKE_BUILD_TYPE MATCHES Release)
     target_compile_definitions(triofuzz_lib PRIVATE ENABLE_NEURAL_OPTIMIZATIONS)
     target_compile_definitions(triofuzz_objects PRIVATE ENABLE_NEURAL_OPTIMIZATIONS)
 endif()
 
-# Install targets
+# 安装目标
 install(TARGETS triofuzz DESTINATION bin)
 install(TARGETS triofuzz DESTINATION lib)
 # install(TARGETS collafuzz_lib DESTINATION lib)
 install(DIRECTORY include/ DESTINATION include)
 
-# Tests
+# 测试
 enable_testing()
 
-# Add a simple test
+# 添加一个简单的测试
 add_test(NAME basic_test COMMAND triofuzz --help)
 
-# Add a havoc-specific test
+# 添加havoc专用测试
 add_test(NAME havoc_test_help COMMAND test_havoc --help)
 
-# Add macro-interface tests
+# 添加宏接口测试
 add_test(NAME simple_fuzz_target_help COMMAND simple_fuzz_target --help)
 add_test(NAME collaborative_fuzz_target_help COMMAND collaborative_fuzz_target --help)
 add_test(NAME angora_fuzz_target_help COMMAND angora_fuzz_target --help)
 add_test(NAME advanced_cpp_target_help COMMAND advanced_cpp_target --help)
 
-# New macro-interface test cases
+# 新增的宏接口测试用例
 add_test(NAME test_macro_interface_help COMMAND test_macro_interface --help)
 add_test(NAME test_collaborative_macro_help COMMAND test_collaborative_macro --help)
 add_test(NAME test_angora_macro_help COMMAND test_angora_macro --help)
 add_test(NAME test_custom_macro_help COMMAND test_custom_macro --help)
 
-# Print configuration information
+# 打印配置信息
 message(STATUS "TrioFuzz Configuration:")
 message(STATUS "  Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "  C++ standard: ${CMAKE_CXX_STANDARD}")
@@ -264,7 +264,7 @@ message(STATUS "  Install prefix: ${CMAKE_INSTALL_PREFIX}")
 message(STATUS "  Macro Interface: Enabled")
 message(STATUS "  Examples built: simple_fuzz_target, collaborative_fuzz_target, angora_fuzz_target, advanced_cpp_target")
 
-# Add compile options
+# 添加编译选项
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     target_compile_options(triofuzz_lib PRIVATE
         -Wall
@@ -280,14 +280,14 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang
     )
 endif()
 
-# Debug information
+# Debug信息
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_definitions(triofuzz_lib PRIVATE DEBUG=1)
     target_compile_definitions(triofuzz_objects PRIVATE DEBUG=1)
 endif()
 
-# Create the config file install
-file(WRITE ${CMAKE_BINARY_DIR}/default_config.json
+# 创建配置文件安装
+file(WRITE ${CMAKE_BINARY_DIR}/default_config.json 
 "{\n"
 "  \"execution\": {\n"
 "    \"thread_count\": 4,\n"
@@ -313,6 +313,6 @@ file(WRITE ${CMAKE_BINARY_DIR}/default_config.json
 
 install(FILES ${CMAKE_BINARY_DIR}/default_config.json DESTINATION etc RENAME config.json)
 
-# Add a minimal debug build
+# 添加最小化调试版本
 # add_executable(debug_minimal examples/debug_minimal.cpp)
 # target_link_libraries(debug_minimal collafuzz_lib)

@@ -99,27 +99,27 @@ if [ -n "$SAVED_CXXFLAGS" ]; then
 fi
 
 # Set linker flags for tool programs (pdfimages, pdftoppm)
-# These tools need magma.o (for magma_log) but should NOT link collabfuzz/triofuzz (has main() conflict)
+# These tools need magma.o (for magma_log) but should NOT link triofuzz/triofuzz (has main() conflict)
 SAVED_LIBS_ORIG="$SAVED_LIBS"
-# Remove -lcollabfuzz and -ltriofuzz but keep all other libraries (like -l:magma.o)
-LIBS_WITHOUT_COLLABFUZZ=$(echo "$SAVED_LIBS" | sed 's/-lcollabfuzz\b//g' | sed 's/-ltriofuzz\b//g' | sed 's/  */ /g' | sed 's/^ *//;s/ *$//')
-if [ -n "$LIBS_WITHOUT_COLLABFUZZ" ]; then
+# Remove -ltriofuzz and -ltriofuzz but keep all other libraries (like -l:magma.o)
+LIBS_WITHOUT_TRIOFUZZ=$(echo "$SAVED_LIBS" | sed 's/-ltriofuzz\b//g' | sed 's/-ltriofuzz\b//g' | sed 's/  */ /g' | sed 's/^ *//;s/ *$//')
+if [ -n "$LIBS_WITHOUT_TRIOFUZZ" ]; then
   # Set CMAKE_EXE_LINKER_FLAGS so CMake uses these flags when linking executables
-  cmake . -DCMAKE_EXE_LINKER_FLAGS="$SAVED_LDFLAGS $LIBS_WITHOUT_COLLABFUZZ"
+  cmake . -DCMAKE_EXE_LINKER_FLAGS="$SAVED_LDFLAGS $LIBS_WITHOUT_TRIOFUZZ"
 fi
 
 # Restore environment variables for make (CMake will use its cache, but some build systems may check env)
 export CFLAGS="$SAVED_CFLAGS"
 export CXXFLAGS="$SAVED_CXXFLAGS"
 export LDFLAGS="$SAVED_LDFLAGS"
-export LIBS="$LIBS_WITHOUT_COLLABFUZZ"
+export LIBS="$LIBS_WITHOUT_TRIOFUZZ"
 
 make -j$(nproc) poppler poppler-cpp pdfimages pdftoppm
 EXTRA=""
 
 cp "$WORK/poppler/utils/"{pdfimages,pdftoppm} "$OUT/"
 
-# Restore LIBS for building the fuzzer (which needs to link against collabfuzz)
+# Restore LIBS for building the fuzzer (which needs to link against triofuzz)
 export LIBS="$SAVED_LIBS_ORIG"
 
 $CXX $CXXFLAGS -std=c++11 -I"$WORK/poppler/cpp" -I"$TARGET/repo/cpp" \

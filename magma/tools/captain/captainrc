@@ -7,10 +7,10 @@
 ###
 
 # WORKDIR: path to directory where shared volumes will be created
-WORKDIR=./sqlite3
+WORKDIR=./workdir_4lib
 
 # REPEAT: number of campaigns to run per program (per fuzzer)
-REPEAT=1
+REPEAT=3
 
 # [WORKER_MODE]: defines the type of CPU resources to allocate (default: 1)
 # - 1: logical cores (possibly SMT-enabled)
@@ -25,7 +25,7 @@ REPEAT=1
 # WORKER_POOL="1 3 5 7 9"
 
 # [CAMPAIGN_WORKERS]: number of workers to allocate for a campaign (default: 1)
-# CAMPAIGN_WORKERS=1
+CAMPAIGN_WORKERS=4
 
 # [TIMEOUT]: time to run each campaign. This variable supports one-letter
 # suffixes to indicate duration (s: seconds, m: minutes, h: hours, d: days)
@@ -78,7 +78,7 @@ FUZZERS=(triofuzz)
 # (default: all targets)
 # aflplusplus_TARGETS=(libpng libsndfile libtiff libxml2 openssl php poppler sqlite3)
 collabfuzz_TARGETS=(libpng libsndfile libtiff libxml2 openssl php poppler sqlite3)
-triofuzz_TARGETS=(sqlite3)
+triofuzz_TARGETS=(libpng libtiff libsndfile sqlite3)
 
 # aflplusplus_libtiff_PROGRAMS=(tiff_read_rgba_fuzzer)
 # aflplusplus_libxml2_PROGRAMS=(libxml2_xml_read_memory_fuzzer)
@@ -93,6 +93,9 @@ collabfuzz_openssl_PROGRAMS=(asn1 asn1parse server client x509)
 collabfuzz_php_PROGRAMS=(exif)
 collabfuzz_poppler_PROGRAMS=(pdf_fuzzer)
 collabfuzz_sqlite3_PROGRAMS=(sqlite3_fuzz)
+triofuzz_libpng_PROGRAMS=(libpng_read_fuzzer)
+triofuzz_libtiff_PROGRAMS=(tiff_read_rgba_fuzzer)
+triofuzz_libsndfile_PROGRAMS=(sndfile_fuzzer)
 triofuzz_sqlite3_PROGRAMS=(sqlite3_fuzz)
 
 
