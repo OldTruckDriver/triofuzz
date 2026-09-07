@@ -3588,7 +3588,11 @@ void FuzzingEngine::initialize() {
     // Configure CorpusManager with the correct output dirs and AFL++-style optimizations
     if (corpus_manager_) {
         CorpusManager::Config corpus_config;
-        corpus_config.max_corpus_size = 10000;
+        // max_corpus_size deliberately NOT set here: FuzzingConfig has no such
+        // field, and the literal 10000 that used to sit on this line silently
+        // overrode the CorpusManager::Config default (raised to 50000 for long
+        // campaigns) on every run, making that change a no-op. The header
+        // default is the single source of truth for this value.
         corpus_config.corpus_dir = config_.output_dir + "/corpus";
         corpus_config.crash_dir = config_.output_dir + "/crashes";
         corpus_config.enable_minimization = true;

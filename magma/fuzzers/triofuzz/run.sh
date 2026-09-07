@@ -81,27 +81,18 @@ export TRIOFUZZ_MAX_DISK_CORPUS_FILES="${TRIOFUZZ_MAX_DISK_CORPUS_FILES:-20000}"
 ##
 export TRIOFUZZ_ARBITER_FAST_CRASH_SEC="${TRIOFUZZ_ARBITER_FAST_CRASH_SEC:-10}"
 
-# Adaptive serialization is effectively disabled for Magma.
+# Adaptive serialization is left at the engine default (escalate after 3).
+# It now counts only fast worker deaths whose captured input did NOT reproduce
+# single-threaded -- the actual signature of a thread-unsafe target -- so a
+# canary-triggered SIGSEGV under isan=1 (reproduces deterministically) or an
+# OOM SIGKILL (not a crash signal) can no longer latch it. Set
+# TRIOFUZZ_ARBITER_ESCALATE_AFTER=0 to disable outright.
 #
-# The supervisor latches g_serialize_target after N consecutive workers that die
-# within TRIOFUZZ_ARBITER_FAST_CRASH_SEC, on the theory that a target crashing
-# that fast must be thread-unsafe. The predicate does not look at whether the
-# crash reproduced single-threaded, so under Magma it misfires badly:
-#   - with captain isan=1 (-DMAGMA_FATAL_CANARIES) every triggered canary raises
-#     SIGSEGV, so a target whose bugs are easy to reach dies fast over and over
-#     for entirely legitimate reasons, and
-#   - an OOM kill (SIGKILL) also counts, which the corpus-size increases in this
-#     change set make more likely.
-# Once latched the flag is never cleared anywhere in the source and is inherited
-# by every subsequent forked worker, serializing all target execution through a
-# single mutex for the rest of the campaign -- a large, permanent, and silent
-# throughput loss on exactly the targets that are finding the most bugs.
-#
-# Serialization would not help in either misfire case anyway (neither is a data
-# race), and the arbiter's restart loop already provides the survivability that
-# matters for Magma. A very large threshold disables the latch without needing a
-# code change; lower it if you are deliberately studying a thread-unsafe target.
-export TRIOFUZZ_ARBITER_ESCALATE_AFTER="${TRIOFUZZ_ARBITER_ESCALATE_AFTER:-4000000000}"
+# The supervisor also enforces a worker liveness deadline
+# (TRIOFUZZ_ARBITER_WORKER_HANG_SEC, default 300s once the engine is fuzzing;
+# TRIOFUZZ_ARBITER_STARTUP_GRACE_SEC, default 1800s for init + corpus reload +
+# seed calibration before that). The HANG_TIMEOUT watchdog further down is the
+# outer backstop for the supervisor itself.
 
 # TrioFuzz command-line arguments
 TRIOFUZZ_ARGS="-output=$TRIOFUZZ_OUT"

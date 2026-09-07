@@ -41,51 +41,50 @@ single-process behaviour.
 |---|---|---|
 | `TRIOFUZZ_NO_ARBITER` | unset | Set to any value to disable arbitration |
 | `TRIOFUZZ_ARBITER_FAST_CRASH_SEC` | 10 | A worker dying sooner than this counts as a "fast crash" |
-| `TRIOFUZZ_ARBITER_ESCALATE_AFTER` | 4000000000 (effectively off) | Consecutive fast crashes before target execution is serialized — see below |
+| `TRIOFUZZ_ARBITER_ESCALATE_AFTER` | 3 | Consecutive fast **non-reproducing** crashes before target execution is serialized; 0 = never |
+| `TRIOFUZZ_ARBITER_WORKER_HANG_SEC` | 300 | Kill the worker if no target execution for this long (0 = off) |
+| `TRIOFUZZ_ARBITER_STARTUP_GRACE_SEC` | 1800 | Allowance until the engine starts fuzzing (init, corpus reload, seed calibration) |
 | `TRIOFUZZ_ARBITER_MAX_RESTARTS` | 10000 | Fork-bomb guard (only enforced when a time budget is set) |
 
 ---
 
-## Upstream arbiter behaviour this integration works around
+## Arbiter behaviour that was fixed in the canonical source
 
-**Adaptive serialization is disabled** (`TRIOFUZZ_ARBITER_ESCALATE_AFTER` set
-absurdly high in `run.sh`). The supervisor latches `g_serialize_target` after 3
-consecutive workers dying within 10s, on the theory that a target crashing that
-fast is thread-unsafe. The predicate never checks whether the crash reproduced
-single-threaded, so under Magma it misfires: with captain `isan=1` every
-triggered canary raises `SIGSEGV`, so a target whose bugs are easy to reach dies
-fast for entirely legitimate reasons; an OOM `SIGKILL` counts too. The flag is
-never cleared anywhere in the source and is inherited by every later forked
-worker, so one misfire serializes all target execution behind a single mutex for
-the rest of the campaign. Serialization would not help in either case (neither
-is a data race).
+Two defects surfaced while adapting the arbiter to Magma. Both are fixed in
+`src/interface/triofuzz_main.cpp` (and mirrored here), not worked around in
+scripts, so Magma runs the same code as FuzzBench.
 
-*Proper upstream fix, not applied here because it also changes FuzzBench
-behaviour:* gate escalation on the false-positive counter (escalate only on
-crashes that did **not** reproduce single-threaded, which is what the flag is
-actually for), make it recoverable after N long-lived workers, and treat
-`TRIOFUZZ_ARBITER_ESCALATE_AFTER=0` as "never".
+**Escalation is gated on the right signal.** The supervisor used to latch
+`g_serialize_target` after 3 consecutive fast worker deaths of *any* kind. Under
+Magma that misfired: with captain `isan=1` every triggered canary raises
+`SIGSEGV` and reproduces deterministically, and an OOM `SIGKILL` counted too.
+It now counts only fast deaths whose captured input did **not** reproduce
+single-threaded — the actual signature of a thread-unsafe target — and
+`TRIOFUZZ_ARBITER_ESCALATE_AFTER=0` means never. The value is parsed unsigned;
+an earlier version of this script tried to disable it with a huge number, which
+`static_cast<int>` wrapped negative and thereby *forced* serialization after the
+first worker death.
+
+**The supervisor no longer blocks on `waitpid` forever.** Every engine thread
+stores a monotonic timestamp into the shared mapping before each target call;
+the supervisor polls with `WNOHANG` and kills a worker whose heartbeat stops
+advancing (`TRIOFUZZ_ARBITER_WORKER_HANG_SEC` once the worker reports it is
+fuzzing, which it does right after `engine.start()`; the longer
+`TRIOFUZZ_ARBITER_STARTUP_GRACE_SEC` covers init, on-disk corpus reload and the
+serial calibration of every initial seed before that). It also enforces the
+campaign budget from the outside, so a wedged worker can no longer defeat
+`-max_total_time`. The heartbeat is process-wide liveness: it catches a worker
+in which no thread reaches the target, not a single thread stuck inside it
+while the others keep going. The
+`HANG_TIMEOUT` watchdog in `run.sh` remains as the outer backstop for the
+supervisor process itself.
 
 **Killing the fuzzer means killing a process group.** The binary is a supervisor
 that `fork()`s a worker. It forwards `SIGTERM` to that worker, but `SIGKILL`
-cannot be caught and so cannot be forwarded — and the watchdog only ever fires
-when the worker is already wedged and ignoring `SIGTERM`. `run.sh` therefore
-launches the fuzzer in its own process group (`set -m`) and signals the whole
-group, plus an `EXIT`/`TERM` trap so that `magma/run.sh`'s outer
-`timeout $TIMEOUT` does not leave the tree running. Without this, one orphaned
-multi-threaded worker would leak every `HANG_TIMEOUT`, each still writing this
-campaign's corpus and still incrementing `$SHARED/canaries.raw`.
-
-**The hang watchdog is load-bearing, not decorative.** The supervisor reaps its
-worker with a blocking `waitpid(pid, &status, 0)` that has no deadline and no
-liveness check — unlike `replay_reproduces`, which does poll with `WNOHANG`
-against a deadline and `SIGKILL`s a stuck replay child. Compounding this,
-`InProcessExecutor::execute` accepts a `timeout` parameter and never uses it, so
-the in-process path has no per-execution timeout at all, and the
-`--worker-threads`/`--explorer-threads` configuration this script uses takes
-`SpecializedThreadEngine::stop()`, which joins unconditionally. A wedged worker
-therefore freezes the campaign and defeats `-max_total_time`. `run.sh`'s
-`HANG_TIMEOUT` watchdog is the only thing that recovers from that.
+cannot be caught and so cannot be forwarded. `run.sh` therefore launches the
+fuzzer in its own process group (`set -m`) and signals the whole group, plus an
+`EXIT`/`TERM` trap so that `magma/run.sh`'s outer `timeout $TIMEOUT` does not
+leave the tree running.
 
 ---
 

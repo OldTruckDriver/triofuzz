@@ -228,6 +228,15 @@ inline uint64_t fnv1a64(const uint8_t* p, size_t n) {
     return h;
 }
 
+// CLOCK_MONOTONIC in nanoseconds. Shared by the worker heartbeat and the
+// supervisor's staleness check; both sides read the same system-wide clock,
+// so the value survives fork() unchanged in meaning.
+inline uint64_t monotonic_ns() {
+    return static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count());
+}
+
 // -- Faulting-thread input snapshot (async-signal-safe capture) --------------
 // Set by InProcessExecutor::execute() immediately before each target call, as
 // raw POD (NOT std::vector internals) so the crash handler can read the exact
@@ -238,6 +247,12 @@ static thread_local const uint8_t* g_tls_input_data
     __attribute__((tls_model("initial-exec"))) = nullptr;
 static thread_local size_t g_tls_input_size
     __attribute__((tls_model("initial-exec"))) = 0;
+// True only while this thread is inside a target call. Kept separate from the
+// length so that "armed with a zero-length input" (a legitimate crash
+// candidate) and "not inside the target at all" (an engine-side fault) do not
+// collapse into the same len==0 encoding.
+static thread_local bool g_tls_input_armed
+    __attribute__((tls_model("initial-exec"))) = false;
 
 // -- Adaptive serialization for thread-unsafe targets ------------------------
 // When the supervisor detects repeated fast crashes it sets this before forking
@@ -250,10 +265,29 @@ static std::mutex g_target_exec_mutex;
 // -- Shared crash slot (worker -> supervisor candidate handoff) --------------
 static constexpr uint32_t kCrashMagic = 0x54524643u;  // 'TRFC'
 struct CrashSlot {
-    uint32_t magic;    // 0 = empty, kCrashMagic = published
-    uint32_t signal;   // terminating signal captured by the worker
-    uint64_t len;      // number of valid bytes in data[]
-    uint8_t  data[1];  // capacity = g_crash_slot_cap (over-allocated via mmap)
+    uint32_t magic;         // 0 = empty, kCrashMagic = published
+    uint32_t signal;        // terminating signal captured by the worker
+    uint64_t len;           // number of valid bytes in data[]
+    // Worker liveness. Every engine thread stores monotonic_ns() here right
+    // before it calls the target; the supervisor kills a worker whose value
+    // stops advancing. This bounds the supervisor's wait -- the in-process
+    // executor has no per-execution timeout -- but it is PROCESS-wide
+    // liveness, not per-thread: it fires when NO thread has entered the target
+    // for the deadline (all threads wedged, a hang before the first execution,
+    // or the serialized path where one stuck thread blocks the rest). A single
+    // thread stuck inside the target while others keep executing is not
+    // detected; that costs one thread of throughput for the worker's lifetime,
+    // not the campaign.
+    uint64_t heartbeat_ns;
+    // Worker phase: 0 = starting (engine init, corpus reload, seed calibration),
+    // 1 = fuzzing (stored by the worker right after engine.start()). Selects
+    // which liveness deadline applies and anchors the escalation "fast crash"
+    // clock, so that neither startup cost nor a slow calibration pass is
+    // mistaken for a crash-looping fuzzing loop.
+    uint32_t phase;
+    uint32_t armed;         // 1 = the faulting thread was inside a target call
+    uint64_t fuzz_start_ns;
+    uint8_t  data[1];       // capacity = g_crash_slot_cap (over-allocated via mmap)
 };
 static CrashSlot* g_crash_slot = nullptr;
 static size_t g_crash_slot_cap = 0;
@@ -288,15 +322,17 @@ static void worker_capture_handler(int sig, siginfo_t* /*info*/, void* /*ctx*/) 
         for (;;) pause();
     }
     if (g_crash_slot) {
+        const bool armed = g_tls_input_armed;
         const uint8_t* p = g_tls_input_data;
         size_t n = g_tls_input_size;
-        if (p && n) {
+        if (armed && p && n) {
             size_t m = (n < g_crash_slot_cap) ? n : g_crash_slot_cap;
             for (size_t i = 0; i < m; ++i) g_crash_slot->data[i] = p[i];
             g_crash_slot->len = m;
         } else {
-            g_crash_slot->len = 0;
+            g_crash_slot->len = 0;  // armed && empty input, or not armed at all
         }
+        g_crash_slot->armed = armed ? 1u : 0u;
         g_crash_slot->signal = static_cast<uint32_t>(sig);
         __atomic_store_n(&g_crash_slot->magic, kCrashMagic, __ATOMIC_RELEASE);
     }
@@ -507,6 +543,26 @@ public:
         // handler (raw ptr/len; valid for the duration of this call).
         g_tls_input_data = input.data();
         g_tls_input_size = input.size();
+        g_tls_input_armed = true;
+        // Disarm on every exit path (normal return, exception). A fault on this
+        // thread outside a target call must then publish armed==0 rather than
+        // copy from a pointer into a buffer that may since have been freed.
+        // Plain RAII is safe here: nothing longjmps in this design, so the
+        // destructor always runs.
+        struct TlsInputDisarm {
+            ~TlsInputDisarm() {
+                g_tls_input_armed = false;
+                g_tls_input_data = nullptr;
+                g_tls_input_size = 0;
+            }
+        } tls_input_disarm;
+
+        // Liveness heartbeat for the supervisor (arbiter mode only; the slot is
+        // null in legacy mode). One relaxed store of the monotonic clock per
+        // execution -- no RMW, so no cache-line contention between threads.
+        if (g_crash_slot) {
+            __atomic_store_n(&g_crash_slot->heartbeat_ns, monotonic_ns(), __ATOMIC_RELAXED);
+        }
 
         try {
             // Direct execution, no thread pool overhead. Under adaptive
@@ -1340,6 +1396,12 @@ static int run_fuzzing_engine_child(int argc, char* argv[], bool arbiter_mode) {
         std::cout << "[TrioFuzz] Starting fuzzing engine..." << std::endl;
         // Start fuzzing
         engine.start();
+        // Tell the supervisor the engine is now fuzzing: the startup grace ends
+        // and the escalation "fast crash" clock starts here, not at fork.
+        if (g_crash_slot) {
+            __atomic_store_n(&g_crash_slot->fuzz_start_ns, monotonic_ns(), __ATOMIC_RELAXED);
+            __atomic_store_n(&g_crash_slot->phase, 1u, __ATOMIC_RELEASE);
+        }
 
         // Wait for completion (Ctrl+C or time limit reached)
         if (getEffectiveConfig().verbose) {
@@ -1524,13 +1586,35 @@ static int run_supervisor(int argc, char* argv[]) {
     const int timeout_ms = static_cast<int>(std::max<long long>(1, config.timeout.count()));
     const int budget_s = cli_overrides.max_total_time;  // <= 0 => unbounded
     const auto t0 = std::chrono::steady_clock::now();
-    const int max_restarts = static_cast<int>(getenv_u32_or("TRIOFUZZ_ARBITER_MAX_RESTARTS", 10000));
-    const int fast_crash_sec = static_cast<int>(getenv_u32_or("TRIOFUZZ_ARBITER_FAST_CRASH_SEC", 10));
-    const int escalate_after = static_cast<int>(getenv_u32_or("TRIOFUZZ_ARBITER_ESCALATE_AFTER", 3));
+    // All knobs stay unsigned (see escalate_after below for why).
+    const uint32_t max_restarts   = getenv_u32_or("TRIOFUZZ_ARBITER_MAX_RESTARTS", 10000);
+    const uint32_t fast_crash_sec = getenv_u32_or("TRIOFUZZ_ARBITER_FAST_CRASH_SEC", 10);
+    // Kept unsigned on purpose: a static_cast<int> of a large "disable it"
+    // value wraps negative and makes the comparison below fire on the first
+    // worker death. 0 means never escalate.
+    const uint32_t escalate_after = getenv_u32_or("TRIOFUZZ_ARBITER_ESCALATE_AFTER", 3);
+    // Worker liveness deadlines (seconds; 0 disables the check). Until the
+    // worker reports phase==1 (set right after engine.start()) it is still
+    // initializing, reloading the on-disk corpus and calibrating every initial
+    // seed -- work that can take minutes on large seed sets -- so that phase
+    // gets its own, longer allowance.
+    const uint32_t worker_hang_sec    = getenv_u32_or("TRIOFUZZ_ARBITER_WORKER_HANG_SEC", 300);
+    const uint32_t startup_grace_sec  = getenv_u32_or("TRIOFUZZ_ARBITER_STARTUP_GRACE_SEC", 1800);
+    // Backoff after this many consecutive fast deaths of ANY kind (OOM loop,
+    // engine fault, ...). Decoupled from escalation: it guards CPU spin, not
+    // thread-safety, and must keep working when escalation is disabled.
+    constexpr int kBackoffAfterFastDeaths = 3;
 
     struct Verdict { bool reproduced; uint32_t hits; };
     std::unordered_map<uint64_t, Verdict> verdicts;  // input hash -> verdict + hits
-    int restarts = 0, consecutive_fast = 0;
+    uint32_t restarts = 0;
+    int consecutive_fast = 0;
+    // Consecutive worker deaths that were BOTH fast AND judged a concurrency
+    // artifact (candidate captured, did not reproduce single-threaded). Only
+    // that signature indicates a thread-unsafe target; a fast death from a
+    // genuine reproducible bug, an OOM SIGKILL or an engine fault must not
+    // trip serialization, since serializing helps with none of those.
+    uint32_t consecutive_fast_artifacts = 0;
     size_t confirmed = 0, false_pos = 0;
 
     std::fprintf(stderr,
@@ -1549,6 +1633,13 @@ static int run_supervisor(int argc, char* argv[]) {
         // Reset the slot before forking the next worker.
         __atomic_store_n(&g_crash_slot->magic, 0u, __ATOMIC_RELEASE);
         g_crash_slot->len = 0;
+        g_crash_slot->armed = 0;
+        // Prime the heartbeat with the fork time so a worker that wedges before
+        // its first target call is still measured (against startup_grace_sec).
+        const uint64_t hb_at_fork = monotonic_ns();
+        __atomic_store_n(&g_crash_slot->heartbeat_ns, hb_at_fork, __ATOMIC_RELAXED);
+        __atomic_store_n(&g_crash_slot->fuzz_start_ns, 0ull, __ATOMIC_RELAXED);
+        __atomic_store_n(&g_crash_slot->phase, 0u, __ATOMIC_RELEASE);
 
         auto worker_start = std::chrono::steady_clock::now();
         pid_t pid = fork();
@@ -1569,14 +1660,63 @@ static int run_supervisor(int argc, char* argv[]) {
 
         g_active_child.store(pid);
         int status = 0;
-        bool reaped = false;
+        bool reaped = false, hung = false, budget_hit = false;
+        // Poll rather than block: the worker cannot bound its own execution
+        // time, so the supervisor enforces two deadlines while it waits --
+        // heartbeat staleness (worker wedged) and the campaign budget.
         for (;;) {
-            pid_t r = waitpid(pid, &status, 0);
+            pid_t r = waitpid(pid, &status, WNOHANG);
             if (r == pid) { reaped = true; break; }
-            if (r < 0 && errno == EINTR) continue;
-            break;  // ECHILD/other: could not reap -> reaped stays false
+            if (r < 0) { if (errno == EINTR) continue; break; }  // ECHILD/other
+
+            // Still running. Decide whether it has to be stopped.
+            const uint64_t now_ns = monotonic_ns();
+            const char* why = nullptr;
+            const uint64_t hb = __atomic_load_n(&g_crash_slot->heartbeat_ns, __ATOMIC_RELAXED);
+            const bool started = (__atomic_load_n(&g_crash_slot->phase, __ATOMIC_ACQUIRE) == 1u);
+            const uint32_t limit_s = started ? worker_hang_sec : startup_grace_sec;
+            if (limit_s > 0 && now_ns > hb && (now_ns - hb) >= limit_s * 1000000000ull) {
+                hung = true;
+                why = started ? "no target execution for" : "still starting up after";
+                std::fprintf(stderr, "[arbiter] worker pid=%d: %s %us; killing it.\n",
+                             static_cast<int>(pid), why, limit_s);
+            } else if (budget_s > 0) {
+                auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::steady_clock::now() - t0).count();
+                if (elapsed >= budget_s) {
+                    budget_hit = true;
+                    why = "campaign budget exhausted";
+                    std::fprintf(stderr, "[arbiter] %s; stopping worker pid=%d.\n",
+                                 why, static_cast<int>(pid));
+                }
+            }
+            if (!why && g_supervisor_terminating.load()) why = "termination requested";
+
+            if (why) {
+                // SIGTERM first so a healthy engine can flush; a wedged one will
+                // not react, hence the bounded wait and the SIGKILL.
+                kill(pid, SIGTERM);
+                for (int i = 0; i < 50 && !reaped; ++i) {  // up to ~5s
+                    r = waitpid(pid, &status, WNOHANG);
+                    if (r == pid) { reaped = true; break; }
+                    if (r < 0 && errno != EINTR) break;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                }
+                if (!reaped) {
+                    kill(pid, SIGKILL);
+                    for (;;) {
+                        r = waitpid(pid, &status, 0);
+                        if (r == pid) { reaped = true; break; }
+                        if (r < 0 && errno == EINTR) continue;
+                        break;
+                    }
+                }
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
         }
         g_active_child.store(-1);
+        if (budget_hit) break;  // campaign over; do not restart
 
         // The ONLY conditions that stop the campaign are: the orchestrator asked
         // us to stop (g_supervisor_terminating, set by SIGINT/SIGTERM delivered to
@@ -1589,9 +1729,18 @@ static int run_supervisor(int argc, char* argv[]) {
 
         int sig = 0;  // nonzero => worker died by this signal
         if (reaped && WIFEXITED(status)) {
-            if (WEXITSTATUS(status) == 0) break;  // clean self-termination (budget/exec limit)
-            std::fprintf(stderr, "[arbiter] worker exited status=%d (anomalous); restarting.\n",
-                         WEXITSTATUS(status));
+            if (WEXITSTATUS(status) == 0) {
+                // Exit 0 means the campaign is over ONLY when the worker stopped
+                // on its own (budget/exec limit). A worker we SIGTERMed after a
+                // heartbeat timeout may also shut down cleanly inside the grace
+                // window and exit 0; that is a stall we chose to end, so restart.
+                if (!hung) break;
+                std::fprintf(stderr,
+                    "[arbiter] worker stopped cleanly after heartbeat timeout; restarting.\n");
+            } else {
+                std::fprintf(stderr, "[arbiter] worker exited status=%d (anomalous); restarting.\n",
+                             WEXITSTATUS(status));
+            }
         } else if (reaped && WIFSIGNALED(status)) {
             sig = WTERMSIG(status);
         } else {
@@ -1601,11 +1750,33 @@ static int run_supervisor(int argc, char* argv[]) {
 
         auto dur = std::chrono::duration_cast<std::chrono::seconds>(
             std::chrono::steady_clock::now() - worker_start).count();
-        consecutive_fast = (dur < fast_crash_sec) ? (consecutive_fast + 1) : 0;
+        // Two clocks, two purposes. `fast_death` (since fork) drives the CPU-spin
+        // backoff and must catch a worker that dies instantly in init.
+        // `fast_fuzzing_death` (since engine.start()) drives escalation: a death
+        // before the engine started fuzzing is a startup fault, never a "fast
+        // crash" of the fuzzing loop, and a target with a long calibration pass
+        // must still be able to meet the thread-unsafety signature.
+        const bool fast_death = (dur < static_cast<long long>(fast_crash_sec));
+        consecutive_fast = fast_death ? (consecutive_fast + 1) : 0;
+        const uint64_t death_ns = monotonic_ns();
+        const bool fuzzing_started =
+            (__atomic_load_n(&g_crash_slot->phase, __ATOMIC_ACQUIRE) == 1u);
+        const uint64_t fuzz_start = __atomic_load_n(&g_crash_slot->fuzz_start_ns, __ATOMIC_RELAXED);
+        const bool fast_fuzzing_death = fuzzing_started && death_ns > fuzz_start &&
+            (death_ns - fuzz_start) < static_cast<uint64_t>(fast_crash_sec) * 1000000000ull;
+        bool fast_artifact = false;  // set below iff this death was a fast, non-reproducing crash
 
         if (sig != 0 && is_crash_signal(sig)) {
+            // The handler publishes unconditionally, so a fault on a thread
+            // that was NOT inside a target call (engine-side) also fills the
+            // slot. Such a slot carries nothing to replay: feeding the target
+            // (nullptr, 0) would be a spurious CONFIRMED with an empty crash
+            // file, or a spurious FALSE POSITIVE counted toward escalation.
+            // Only an armed slot is a candidate; an armed slot with len==0 is a
+            // genuine zero-length-input crash and is replayed like any other.
             const bool have_candidate =
-                (__atomic_load_n(&g_crash_slot->magic, __ATOMIC_ACQUIRE) == kCrashMagic);
+                (__atomic_load_n(&g_crash_slot->magic, __ATOMIC_ACQUIRE) == kCrashMagic) &&
+                (g_crash_slot->armed != 0u);
             if (have_candidate) {
                 const size_t n = static_cast<size_t>(g_crash_slot->len);
                 std::vector<uint8_t> cand(g_crash_slot->data, g_crash_slot->data + n);
@@ -1642,48 +1813,58 @@ static int run_supervisor(int argc, char* argv[]) {
                         "saved. total_confirmed=%zu\n", sig, confirmed);
                 } else {
                     ++false_pos;
+                    if (fast_fuzzing_death) fast_artifact = true;
                     std::fprintf(stderr,
                         "[arbiter] FALSE POSITIVE sig=%d (did NOT reproduce single-threaded); "
                         "discarded. total_false_positives=%zu\n", sig, false_pos);
                 }
             } else {
                 std::fprintf(stderr,
-                    "[arbiter] worker died sig=%d but no candidate captured; discarding.\n", sig);
+                    "[arbiter] worker died sig=%d with no target input armed (engine-side "
+                    "fault or capture failure); nothing to verify, restarting.\n", sig);
             }
         } else if (sig == SIGKILL) {
-            std::fprintf(stderr, "[arbiter] worker SIGKILLed (likely OOM killer); restarting.\n");
+            std::fprintf(stderr, hung
+                ? "[arbiter] worker killed by supervisor after heartbeat timeout; restarting.\n"
+                : "[arbiter] worker SIGKILLed (likely OOM killer); restarting.\n");
         } else if (sig != 0) {
             std::fprintf(stderr, "[arbiter] worker died sig=%d (non-crash); restarting.\n", sig);
         }
+
+        consecutive_fast_artifacts = fast_artifact ? (consecutive_fast_artifacts + 1) : 0;
 
         ++restarts;
         // The restart cap is a fork-bomb guard. Only hard-stop BOUNDED runs at the
         // cap; on the unbounded (FuzzBench) path keep the campaign alive until the
         // orchestrator terminates us -- dying early would waste the remaining budget.
         if (budget_s > 0 && restarts > max_restarts) {
-            std::fprintf(stderr, "[arbiter] restart cap reached (%d); stopping.\n", max_restarts);
+            std::fprintf(stderr, "[arbiter] restart cap reached (%u); stopping.\n", max_restarts);
             break;
         }
 
-        // Adaptive escalation: repeated fast crashes => the target is thread-unsafe;
-        // serialize target execution for subsequent workers so coverage keeps
-        // progressing instead of crash-looping.
-        if (consecutive_fast >= escalate_after && !g_serialize_target.load()) {
+        // Adaptive escalation: repeated fast crashes that do NOT reproduce
+        // single-threaded are the signature of a thread-unsafe target. Serialize
+        // target execution for subsequent workers so coverage keeps progressing
+        // instead of crash-looping. Gated on that signature only (see
+        // consecutive_fast_artifacts); 0 disables.
+        if (escalate_after > 0 && consecutive_fast_artifacts >= escalate_after &&
+            !g_serialize_target.load()) {
             g_serialize_target.store(true);
             std::fprintf(stderr,
-                "[arbiter] thread-unsafe target detected (%d consecutive fast crashes); "
-                "serializing target execution for subsequent workers.\n", consecutive_fast);
+                "[arbiter] thread-unsafe target detected (%u consecutive fast non-reproducing "
+                "crashes); serializing target execution for subsequent workers.\n",
+                consecutive_fast_artifacts);
         }
-        if (consecutive_fast >= escalate_after) {
-            // Backoff grows with consecutive fast crashes (capped) so a target that
-            // crashes instantly cannot spin the CPU, while the process stays alive.
+        if (consecutive_fast >= kBackoffAfterFastDeaths) {
+            // Backoff grows with consecutive fast deaths (capped) so a target that
+            // dies instantly cannot spin the CPU, while the process stays alive.
             int backoff_ms = std::min(2000, 100 * consecutive_fast);
             std::this_thread::sleep_for(std::chrono::milliseconds(backoff_ms));
         }
     }
 
     std::fprintf(stderr,
-        "[arbiter] supervisor exiting: confirmed=%zu false_positives=%zu restarts=%d\n",
+        "[arbiter] supervisor exiting: confirmed=%zu false_positives=%zu restarts=%u\n",
         confirmed, false_pos, restarts);
     return 0;
 }
