@@ -29,6 +29,10 @@
 #include <mutex>
 #include <functional>
 #include <algorithm>
+#include <unordered_map>
+#include <cstdio>
+#include <sys/mman.h>
+#include <sys/wait.h>
 #include "../core/enhanced_crash_tracker.h"
 
 // External function declarations
@@ -176,6 +180,252 @@ const triofuzzConfig& getEffectiveConfig() {
     return effective_config;
 }
 
+// ============================================================================
+// Fork-based crash arbitration (supervisor + single-thread replay oracle)
+// ----------------------------------------------------------------------------
+// TrioFuzz runs LLVMFuzzerTestOneInput in-process across several worker/explorer
+// threads with no lock. A thread-UNSAFE target (mutable global/static state) can
+// then be data-raced by that concurrency, producing SIGSEGV/SIGABRT that do NOT
+// occur under a single-threaded execution -- i.e. false-positive crashes -- and,
+// worse, the crash takes down the whole in-process engine, ending the campaign.
+//
+// To keep the fast in-process multi-threaded engine while eliminating those
+// false positives, main() runs as a single-threaded SUPERVISOR that forks the
+// engine into a WORKER child. On a worker crash the supervisor re-runs the
+// captured input single-threaded in a fresh REPLAY child forked from the
+// pristine supervisor; only crashes that reproduce single-threaded are treated
+// as real (matching FuzzBench's own single-threaded crash reproduction). The
+// supervisor then restarts the engine within the remaining budget, so a
+// thread-unsafe target no longer terminates the campaign.
+//
+// Opt out (exact legacy single-process behavior): TRIOFUZZ_NO_ARBITER=1 or
+// pass --no-arbiter.
+// ============================================================================
+
+// Signals we treat as a genuine crash when reproduced single-threaded.
+inline bool is_crash_signal(int sig) {
+    switch (sig) {
+        case SIGSEGV: case SIGABRT: case SIGFPE:
+        case SIGILL:  case SIGBUS:  case SIGTRAP:
+            return true;
+        default:
+            return false;
+    }
+}
+
+inline uint32_t getenv_u32_or(const char* name, uint32_t defval) {
+    const char* v = std::getenv(name);
+    if (!v || !*v) return defval;
+    char* end = nullptr;
+    unsigned long r = std::strtoul(v, &end, 10);
+    if (end == v) return defval;
+    return static_cast<uint32_t>(r);
+}
+
+inline uint64_t fnv1a64(const uint8_t* p, size_t n) {
+    uint64_t h = 14695981039346656037ULL;
+    for (size_t i = 0; i < n; ++i) { h ^= p[i]; h *= 1099511628211ULL; }
+    return h;
+}
+
+// -- Faulting-thread input snapshot (async-signal-safe capture) --------------
+// Set by InProcessExecutor::execute() immediately before each target call, as
+// raw POD (NOT std::vector internals) so the crash handler can read the exact
+// input of the faulting thread even if the heap/vector control block is
+// corrupted. initial-exec TLS model keeps the access a direct offset load with
+// no __tls_get_addr/malloc (safe: the engine is statically linked into the exe).
+static thread_local const uint8_t* g_tls_input_data
+    __attribute__((tls_model("initial-exec"))) = nullptr;
+static thread_local size_t g_tls_input_size
+    __attribute__((tls_model("initial-exec"))) = 0;
+
+// -- Adaptive serialization for thread-unsafe targets ------------------------
+// When the supervisor detects repeated fast crashes it sets this before forking
+// the next worker (inherited via copy-on-write), making InProcessExecutor
+// serialize the target call so no two executions run concurrently -- trading
+// throughput for stability instead of crash-looping.
+static std::atomic<bool> g_serialize_target{false};
+static std::mutex g_target_exec_mutex;
+
+// -- Shared crash slot (worker -> supervisor candidate handoff) --------------
+static constexpr uint32_t kCrashMagic = 0x54524643u;  // 'TRFC'
+struct CrashSlot {
+    uint32_t magic;    // 0 = empty, kCrashMagic = published
+    uint32_t signal;   // terminating signal captured by the worker
+    uint64_t len;      // number of valid bytes in data[]
+    uint8_t  data[1];  // capacity = g_crash_slot_cap (over-allocated via mmap)
+};
+static CrashSlot* g_crash_slot = nullptr;
+static size_t g_crash_slot_cap = 0;
+
+// Supervisor termination forwarding.
+static std::atomic<pid_t> g_active_child{-1};
+static std::atomic<bool>  g_supervisor_terminating{false};
+
+// One-time user init (LLVMFuzzerInitialize). In arbiter mode this runs ONCE in
+// the pristine supervisor; worker and replay children inherit the initialized
+// state via COW (matching libFuzzer's init-once model). Idempotent so the legacy
+// path (no supervisor) still initializes.
+static std::atomic<bool> g_user_init_done{false};
+static void ensure_user_initialized(int* argc, char*** argv) {
+    bool expected = false;
+    if (g_user_init_done.compare_exchange_strong(expected, true)) {
+        if (LLVMFuzzerTestOneInput && LLVMFuzzerInitialize) {
+            LLVMFuzzerInitialize(argc, argv);
+        }
+    }
+}
+
+// Async-signal-safe worker crash handler. Runs on the faulting thread: copies
+// that thread's current input into the shared slot, publishes it, then dies via
+// the default disposition so the supervisor's waitpid() sees WIFSIGNALED(signal).
+static void worker_capture_handler(int sig, siginfo_t* /*info*/, void* /*ctx*/) {
+    static std::atomic<int> one_shot{0};
+    if (one_shot.exchange(1, std::memory_order_acq_rel) != 0) {
+        // A second thread faulted concurrently: park so it cannot steal the exit
+        // status from the winner's re-raise. The winner's death (SIG_DFL) takes
+        // the whole process -- and this parked thread -- down.
+        for (;;) pause();
+    }
+    if (g_crash_slot) {
+        const uint8_t* p = g_tls_input_data;
+        size_t n = g_tls_input_size;
+        if (p && n) {
+            size_t m = (n < g_crash_slot_cap) ? n : g_crash_slot_cap;
+            for (size_t i = 0; i < m; ++i) g_crash_slot->data[i] = p[i];
+            g_crash_slot->len = m;
+        } else {
+            g_crash_slot->len = 0;
+        }
+        g_crash_slot->signal = static_cast<uint32_t>(sig);
+        __atomic_store_n(&g_crash_slot->magic, kCrashMagic, __ATOMIC_RELEASE);
+    }
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
+// Install a per-thread alternate signal stack so a stack-overflow SIGSEGV can
+// still be delivered to worker_capture_handler on THIS thread. The alt stack is
+// a per-thread attribute (not inherited across thread creation), so every engine
+// pool thread that runs the target must install its own before its first target
+// call (see InProcessExecutor::execute). Idempotent per thread.
+static void install_thread_altstack() {
+    static thread_local char alt_stack[65536];  // one buffer per thread, lives for its lifetime
+    stack_t ss;
+    ss.ss_sp = alt_stack;
+    ss.ss_size = sizeof(alt_stack);
+    ss.ss_flags = 0;
+    sigaltstack(&ss, nullptr);
+}
+
+static void install_worker_capture_handler() {
+    install_thread_altstack();  // covers the worker's main thread
+
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = worker_capture_handler;
+    sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
+    // Block all crash signals during the handler so that a SECONDARY synchronous
+    // fault while copying the (possibly corrupted/dangling) input pointer is
+    // force-delivered as SIG_DFL and kills the process deterministically, rather
+    // than re-entering the handler and parking the winner thread in pause()
+    // forever (which would hang the worker and the supervisor's waitpid).
+    sigemptyset(&sa.sa_mask);
+    const int sigs[] = {SIGSEGV, SIGABRT, SIGFPE, SIGILL, SIGBUS, SIGTRAP};
+    for (int s : sigs) sigaddset(&sa.sa_mask, s);
+    for (int s : sigs) sigaction(s, &sa, nullptr);
+}
+
+// Single-threaded replay oracle: run the candidate once in a fresh child forked
+// from the pristine supervisor. Returns true iff it reproduces a crash signal.
+static bool replay_reproduces(const std::vector<uint8_t>& input, int timeout_ms) {
+    pid_t pid = fork();
+    if (pid < 0) return false;  // cannot verify -> conservative: not reproduced
+    if (pid == 0) {
+        // Fresh, single-threaded, post-LLVMFuzzerInitialize (inherited via COW).
+        // Reset crash handlers to default so the exit status reflects the target.
+        const int sigs[] = {SIGSEGV, SIGABRT, SIGFPE, SIGILL, SIGBUS, SIGTRAP,
+                            SIGINT, SIGTERM};
+        for (int s : sigs) signal(s, SIG_DFL);
+        // Wall-clock backstop. Deliberately NO RLIMIT_AS: it would break ASan
+        // builds and turn a benign OOM into a false "crash".
+        unsigned alarm_s = static_cast<unsigned>((timeout_ms + 999) / 1000) + 2u;
+        alarm(alarm_s);
+        if (LLVMFuzzerTestOneInput) {
+            try {
+                LLVMFuzzerTestOneInput(input.data(), input.size());
+            } catch (...) {
+                _exit(0);  // a caught C++ exception is what the engine swallows too
+            }
+        }
+        _exit(0);
+    }
+    int status = 0;
+    auto deadline = std::chrono::steady_clock::now() +
+                    std::chrono::milliseconds(std::max(1000, timeout_ms * 4));
+    for (;;) {
+        pid_t r = waitpid(pid, &status, WNOHANG);
+        if (r == pid) break;
+        if (r < 0) { if (errno == EINTR) continue; return false; }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            kill(pid, SIGKILL);
+            waitpid(pid, &status, 0);
+            return false;  // hang -> not a reproduced crash signal
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return WIFSIGNALED(status) && is_crash_signal(WTERMSIG(status));
+}
+
+// Persist a single-thread-confirmed crash where FuzzBench will archive+re-run it
+// (output_dir/crashes, inside the monitored /out/corpus tree but NOT the dir the
+// engine reloads) plus a non-.bin copy in output_dir/corpus (the .bin-only corpus
+// reload skips it, so no re-seed loop) to maximize the chance the measurer counts
+// the bug.
+static void save_confirmed_crash(const std::vector<uint8_t>& input, int sig,
+                                 const std::string& output_dir) {
+    uint64_t h = fnv1a64(input.data(), input.size());
+    char hexh[17];
+    std::snprintf(hexh, sizeof(hexh), "%016llx", static_cast<unsigned long long>(h));
+
+    const std::string crashes_dir = output_dir + "/crashes";
+    const std::string corpus_dir  = output_dir + "/corpus";
+    try { std::filesystem::create_directories(crashes_dir); } catch (...) {}
+    try {
+        const std::string bin = crashes_dir + "/crash-" + hexh + "-sig" +
+                                std::to_string(sig) + ".bin";
+        std::ofstream f(bin, std::ios::binary);
+        if (f) f.write(reinterpret_cast<const char*>(input.data()), input.size());
+    } catch (...) {}
+    try {
+        std::filesystem::create_directories(corpus_dir);
+        const std::string cc = corpus_dir + "/crash-" + hexh;  // NON-.bin on purpose
+        if (!std::filesystem::exists(cc)) {
+            std::ofstream cf(cc, std::ios::binary);
+            if (cf) cf.write(reinterpret_cast<const char*>(input.data()), input.size());
+        }
+    } catch (...) {}
+}
+
+// Manual single-input replay/repro mode: `<binary> --replay-verify=FILE`.
+// Runs init + exactly one LLVMFuzzerTestOneInput, single-threaded, then exits.
+// A crash kills this process with the target's signal (useful for humans/CI).
+static int run_replay_verify_mode(const std::string& file, int argc, char* argv[]) {
+    std::ifstream in(file, std::ios::binary);
+    if (!in) {
+        std::fprintf(stderr, "[replay-verify] cannot open %s\n", file.c_str());
+        return 2;
+    }
+    std::vector<uint8_t> data((std::istreambuf_iterator<char>(in)),
+                               std::istreambuf_iterator<char>());
+    ensure_user_initialized(&argc, &argv);
+    if (LLVMFuzzerTestOneInput) {
+        try { LLVMFuzzerTestOneInput(data.data(), data.size()); }
+        catch (...) { return 0; }
+    }
+    return 0;
+}
+
 // Test function wrapper
 class TestFunctionWrapper {
 private:
@@ -246,9 +496,29 @@ public:
         // Update global current input variable for crash handler
         g_current_fuzzing_input = input;
 
+        // Ensure THIS engine pool thread has an alternate signal stack, so a
+        // stack-overflow SIGSEGV in the target can still enter the capture
+        // handler (the alt stack is per-thread and not inherited from the worker
+        // main thread). One-shot per thread; harmless outside arbiter mode.
+        static thread_local bool altstack_installed = false;
+        if (!altstack_installed) { install_thread_altstack(); altstack_installed = true; }
+
+        // Async-signal-safe faulting-thread snapshot for the arbiter's crash
+        // handler (raw ptr/len; valid for the duration of this call).
+        g_tls_input_data = input.data();
+        g_tls_input_size = input.size();
+
         try {
-            // Direct execution, no thread pool overhead
-            int ret = wrapper_.execute(input);
+            // Direct execution, no thread pool overhead. Under adaptive
+            // serialization (thread-unsafe target detected by the supervisor),
+            // only one execution enters the target at a time.
+            int ret;
+            if (g_serialize_target.load(std::memory_order_relaxed)) {
+                std::lock_guard<std::mutex> exec_lock(g_target_exec_mutex);
+                ret = wrapper_.execute(input);
+            } else {
+                ret = wrapper_.execute(input);
+            }
 
             auto end_time = std::chrono::high_resolution_clock::now();
             auto us = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
@@ -693,8 +963,11 @@ void install_global_crash_handler() {
 
 } // anonymous namespace
 
-// Main entry point - framework-provided main function, not instrumented
-extern "C" int main(int argc, char* argv[]) {
+// Runs the full multi-threaded engine lifecycle. In arbiter mode this executes
+// in a forked WORKER child of the supervisor; in legacy mode it is called
+// directly by main(). Returns 0 on normal completion (or dies WIFSIGNALED on a
+// target crash, which the supervisor reaps).
+static int run_fuzzing_engine_child(int argc, char* argv[], bool arbiter_mode) {
     // Add signal handler to capture Ctrl+C, etc.
     bool should_stop = false;
 
@@ -760,16 +1033,21 @@ extern "C" int main(int argc, char* argv[]) {
     crash_tracker.setBinaryPath(argv[0]);
     crash_tracker.setWorkingDirectory(std::filesystem::current_path().string());
 
-    // Install crash handler
-    std::cout << "[TrioFuzz] Installing enhanced crash handler..." << std::endl;
-    install_global_crash_handler();
-
-    // Call user initialization function (if available)
-    auto init_func = LLVMFuzzerInitialize;
-    if (init_func != nullptr) {
-        std::cout << "[TrioFuzz] Calling user initialization function..." << std::endl;
-        init_func(&argc, &argv);
+    // Install crash handler. In arbiter mode use the minimal async-signal-safe
+    // capture handler (dumps the faulting thread's input, then re-raises so the
+    // supervisor can verify it single-threaded). In legacy mode keep the original
+    // heavy handler for exact backward-compatible behavior.
+    if (arbiter_mode) {
+        std::cout << "[TrioFuzz] Installing arbiter crash-capture handler..." << std::endl;
+        install_worker_capture_handler();
+    } else {
+        std::cout << "[TrioFuzz] Installing enhanced crash handler..." << std::endl;
+        install_global_crash_handler();
     }
+
+    // Call user initialization once (idempotent). In arbiter mode LLVMFuzzerInitialize
+    // already ran in the supervisor and is inherited via COW, so this is a no-op.
+    ensure_user_initialized(&argc, &argv);
 
     // Create test function wrapper
     std::cout << "[TrioFuzz] Creating test function wrapper..." << std::endl;
@@ -778,6 +1056,17 @@ extern "C" int main(int argc, char* argv[]) {
     // Create fuzzing configuration
     std::cout << "[TrioFuzz] Creating fuzzing configuration..." << std::endl;
     auto config = create_fuzzing_config(argc, argv);
+
+    // Arbiter: honor the supervisor's remaining wall-clock budget across restarts
+    // (create_fuzzing_config just re-parsed argv and reset cli_overrides, so apply
+    // the supervisor-provided remaining time here).
+    if (arbiter_mode) {
+        const char* rt = std::getenv("TRIOFUZZ_REMAINING_TIME");
+        if (rt && *rt) {
+            int v = std::atoi(rt);
+            if (v > 0) cli_overrides.max_total_time = v;
+        }
+    }
 
     if (getEffectiveConfig().verbose) {
         std::cout << "[TrioFuzz] Configuration:" << std::endl;
@@ -957,21 +1246,26 @@ extern "C" int main(int argc, char* argv[]) {
         std::cout << "[TrioFuzz] Setting up callbacks..." << std::endl;
 
         // Set up callbacks
-        engine.setOnCrash([](const triofuzz::ExecutionResult& result, const triofuzz::AlgorithmCombination& combo) {
+        engine.setOnCrash([output_dir = config.output_dir](const triofuzz::ExecutionResult& result, const triofuzz::AlgorithmCombination& combo) {
             std::cout << "[!] CRASH found by " << combo.toString()
                       << " (input size: " << result.input_data.size() << ")" << std::endl;
+
+            // Soft crash (non-signal, e.g. LLVMFuzzerTestOneInput returned nonzero).
+            // Write under the -output corpus tree so it is archived by FuzzBench,
+            // not the old hardcoded relative "output/crashes" (which is outside it).
+            const std::string crashes_dir = output_dir + "/crashes";
 
             // Save crash input to file
             try {
                 // Ensure crashes directory exists
-                std::filesystem::create_directories("output/crashes");
+                std::filesystem::create_directories(crashes_dir);
 
                 // Generate unique crash filename
                 auto now = std::chrono::system_clock::now();
                 auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
                     now.time_since_epoch()).count();
 
-                std::string crash_filename = "output/crashes/crash_" +
+                std::string crash_filename = crashes_dir + "/crash_" +
                                            std::to_string(timestamp) + "_" +
                                            std::to_string(result.input_data.size()) + "bytes.bin";
 
@@ -987,7 +1281,7 @@ extern "C" int main(int argc, char* argv[]) {
                 }
 
                 // Save crash info report
-                std::string report_filename = "output/crashes/crash_" +
+                std::string report_filename = crashes_dir + "/crash_" +
                                            std::to_string(timestamp) + "_report.txt";
                 std::ofstream report_file(report_filename);
                 if (report_file.is_open()) {
@@ -1177,4 +1471,248 @@ extern "C" int main(int argc, char* argv[]) {
 
     std::cout << "[TrioFuzz] Main function exiting normally." << std::endl;
     return 0;
+}
+
+namespace {
+
+// Supervisor SIGINT/SIGTERM forwarder: relay to the active child and mark the
+// campaign for shutdown.
+static void supervisor_term_handler(int sig) {
+    g_supervisor_terminating.store(true);
+    pid_t c = g_active_child.load();
+    if (c > 0) kill(c, sig);
+}
+
+// Single-threaded supervisor: forks the multi-threaded engine into a WORKER
+// child, and on a crash verifies the captured input single-threaded before
+// deciding whether it is a real bug. Restarts the worker within the remaining
+// budget so a thread-unsafe target no longer ends the campaign.
+static int run_supervisor(int argc, char* argv[]) {
+    // Parse config once in the pristine supervisor (no engine is constructed).
+    triofuzz::FuzzingConfig config = create_fuzzing_config(argc, argv);
+    const std::string output_dir = config.output_dir.empty()
+                                        ? std::string("./output") : config.output_dir;
+
+    // Initialize the target ONCE; worker and replay children inherit it via COW.
+    ensure_user_initialized(&argc, &argv);
+
+    // Allocate the shared crash slot (visible across fork via MAP_SHARED).
+    // Floor at 1MB so a larger-than-max_len input is not truncated on capture
+    // (a truncated candidate would fail to reproduce and be misjudged a false
+    // positive); cap at 16MB to bound the shared mapping.
+    g_crash_slot_cap = std::min<size_t>(
+        std::max<size_t>(config.max_input_size, 1u * 1024u * 1024u),
+        16u * 1024u * 1024u);
+    const size_t slot_bytes = sizeof(CrashSlot) + g_crash_slot_cap;
+    void* m = mmap(nullptr, slot_bytes, PROT_READ | PROT_WRITE,
+                   MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    if (m == MAP_FAILED) {
+        std::fprintf(stderr,
+                     "[arbiter] mmap failed (%s); running without arbitration\n",
+                     std::strerror(errno));
+        return run_fuzzing_engine_child(argc, argv, /*arbiter_mode=*/false);
+    }
+    g_crash_slot = static_cast<CrashSlot*>(m);
+
+    signal(SIGINT, supervisor_term_handler);
+    signal(SIGTERM, supervisor_term_handler);
+    // Restore default SIGCHLD in case the target's LLVMFuzzerInitialize set it to
+    // SIG_IGN (which would make waitpid() fail with ECHILD here and in the replay
+    // oracle, causing a reaped worker to be misread as a clean exit).
+    signal(SIGCHLD, SIG_DFL);
+
+    const int timeout_ms = static_cast<int>(std::max<long long>(1, config.timeout.count()));
+    const int budget_s = cli_overrides.max_total_time;  // <= 0 => unbounded
+    const auto t0 = std::chrono::steady_clock::now();
+    const int max_restarts = static_cast<int>(getenv_u32_or("TRIOFUZZ_ARBITER_MAX_RESTARTS", 10000));
+    const int fast_crash_sec = static_cast<int>(getenv_u32_or("TRIOFUZZ_ARBITER_FAST_CRASH_SEC", 10));
+    const int escalate_after = static_cast<int>(getenv_u32_or("TRIOFUZZ_ARBITER_ESCALATE_AFTER", 3));
+
+    struct Verdict { bool reproduced; uint32_t hits; };
+    std::unordered_map<uint64_t, Verdict> verdicts;  // input hash -> verdict + hits
+    int restarts = 0, consecutive_fast = 0;
+    size_t confirmed = 0, false_pos = 0;
+
+    std::fprintf(stderr,
+                 "[arbiter] supervisor active (pid=%d); crash arbitration ON "
+                 "(set TRIOFUZZ_NO_ARBITER=1 to disable).\n", static_cast<int>(getpid()));
+
+    while (!g_supervisor_terminating.load()) {
+        if (budget_s > 0) {
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::steady_clock::now() - t0).count();
+            int remaining_s = budget_s - static_cast<int>(elapsed);
+            if (remaining_s <= 1) break;
+            setenv("TRIOFUZZ_REMAINING_TIME", std::to_string(remaining_s).c_str(), 1);
+        }
+
+        // Reset the slot before forking the next worker.
+        __atomic_store_n(&g_crash_slot->magic, 0u, __ATOMIC_RELEASE);
+        g_crash_slot->len = 0;
+
+        auto worker_start = std::chrono::steady_clock::now();
+        pid_t pid = fork();
+        if (pid < 0) {
+            std::fprintf(stderr, "[arbiter] fork failed (%s); retrying\n", std::strerror(errno));
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            // Same cap policy as the main restart path: only hard-stop bounded
+            // runs; on the unbounded (FuzzBench) path a transient fork failure
+            // must NOT end the campaign (the counter can accumulate over hours).
+            ++restarts;
+            if (budget_s > 0 && restarts > max_restarts) break;
+            continue;
+        }
+        if (pid == 0) {
+            // WORKER: run the full multi-threaded engine.
+            _exit(run_fuzzing_engine_child(argc, argv, /*arbiter_mode=*/true));
+        }
+
+        g_active_child.store(pid);
+        int status = 0;
+        bool reaped = false;
+        for (;;) {
+            pid_t r = waitpid(pid, &status, 0);
+            if (r == pid) { reaped = true; break; }
+            if (r < 0 && errno == EINTR) continue;
+            break;  // ECHILD/other: could not reap -> reaped stays false
+        }
+        g_active_child.store(-1);
+
+        // The ONLY conditions that stop the campaign are: the orchestrator asked
+        // us to stop (g_supervisor_terminating, set by SIGINT/SIGTERM delivered to
+        // the supervisor), or the worker completed cleanly with exit(0). Anything
+        // else -- a crash signal, an OOM-killer SIGKILL, an engine-exception
+        // nonzero exit, or a failed reap -- must RESTART within the remaining
+        // budget; otherwise the arbiter would itself cause the campaign death it
+        // exists to prevent.
+        if (g_supervisor_terminating.load()) break;
+
+        int sig = 0;  // nonzero => worker died by this signal
+        if (reaped && WIFEXITED(status)) {
+            if (WEXITSTATUS(status) == 0) break;  // clean self-termination (budget/exec limit)
+            std::fprintf(stderr, "[arbiter] worker exited status=%d (anomalous); restarting.\n",
+                         WEXITSTATUS(status));
+        } else if (reaped && WIFSIGNALED(status)) {
+            sig = WTERMSIG(status);
+        } else {
+            std::fprintf(stderr, "[arbiter] waitpid gave no clean status (%s); restarting.\n",
+                         std::strerror(errno));
+        }
+
+        auto dur = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::steady_clock::now() - worker_start).count();
+        consecutive_fast = (dur < fast_crash_sec) ? (consecutive_fast + 1) : 0;
+
+        if (sig != 0 && is_crash_signal(sig)) {
+            const bool have_candidate =
+                (__atomic_load_n(&g_crash_slot->magic, __ATOMIC_ACQUIRE) == kCrashMagic);
+            if (have_candidate) {
+                const size_t n = static_cast<size_t>(g_crash_slot->len);
+                std::vector<uint8_t> cand(g_crash_slot->data, g_crash_slot->data + n);
+                const uint64_t h = fnv1a64(cand.data(), cand.size());
+                bool reproduced;
+                auto it = verdicts.find(h);
+                if (it != verdicts.end()) {
+                    it->second.hits++;
+                    if (it->second.reproduced) {
+                        reproduced = true;  // a real bug stays real
+                    } else if ((it->second.hits % 8u) == 0u) {
+                        // Periodically re-verify negative-cached inputs so a
+                        // marginally-flaky REAL bug is not permanently missed;
+                        // genuine thread-race artifacts keep reproducing 0x.
+                        reproduced = replay_reproduces(cand, timeout_ms);
+                        if (reproduced) it->second.reproduced = true;
+                    } else {
+                        reproduced = false;
+                    }
+                } else {
+                    reproduced = replay_reproduces(cand, timeout_ms);
+                    if (!reproduced) {
+                        // One retry recovers allocator/ASLR-flaky real bugs;
+                        // concurrency artifacts reproduce on neither attempt.
+                        reproduced = replay_reproduces(cand, timeout_ms);
+                    }
+                    if (verdicts.size() < 200000) verdicts.emplace(h, Verdict{reproduced, 1});
+                }
+                if (reproduced) {
+                    save_confirmed_crash(cand, sig, output_dir);
+                    ++confirmed;
+                    std::fprintf(stderr,
+                        "[arbiter] CONFIRMED crash sig=%d (reproduced single-threaded); "
+                        "saved. total_confirmed=%zu\n", sig, confirmed);
+                } else {
+                    ++false_pos;
+                    std::fprintf(stderr,
+                        "[arbiter] FALSE POSITIVE sig=%d (did NOT reproduce single-threaded); "
+                        "discarded. total_false_positives=%zu\n", sig, false_pos);
+                }
+            } else {
+                std::fprintf(stderr,
+                    "[arbiter] worker died sig=%d but no candidate captured; discarding.\n", sig);
+            }
+        } else if (sig == SIGKILL) {
+            std::fprintf(stderr, "[arbiter] worker SIGKILLed (likely OOM killer); restarting.\n");
+        } else if (sig != 0) {
+            std::fprintf(stderr, "[arbiter] worker died sig=%d (non-crash); restarting.\n", sig);
+        }
+
+        ++restarts;
+        // The restart cap is a fork-bomb guard. Only hard-stop BOUNDED runs at the
+        // cap; on the unbounded (FuzzBench) path keep the campaign alive until the
+        // orchestrator terminates us -- dying early would waste the remaining budget.
+        if (budget_s > 0 && restarts > max_restarts) {
+            std::fprintf(stderr, "[arbiter] restart cap reached (%d); stopping.\n", max_restarts);
+            break;
+        }
+
+        // Adaptive escalation: repeated fast crashes => the target is thread-unsafe;
+        // serialize target execution for subsequent workers so coverage keeps
+        // progressing instead of crash-looping.
+        if (consecutive_fast >= escalate_after && !g_serialize_target.load()) {
+            g_serialize_target.store(true);
+            std::fprintf(stderr,
+                "[arbiter] thread-unsafe target detected (%d consecutive fast crashes); "
+                "serializing target execution for subsequent workers.\n", consecutive_fast);
+        }
+        if (consecutive_fast >= escalate_after) {
+            // Backoff grows with consecutive fast crashes (capped) so a target that
+            // crashes instantly cannot spin the CPU, while the process stays alive.
+            int backoff_ms = std::min(2000, 100 * consecutive_fast);
+            std::this_thread::sleep_for(std::chrono::milliseconds(backoff_ms));
+        }
+    }
+
+    std::fprintf(stderr,
+        "[arbiter] supervisor exiting: confirmed=%zu false_positives=%zu restarts=%d\n",
+        confirmed, false_pos, restarts);
+    return 0;
+}
+
+} // anonymous namespace
+
+// Main entry point - framework-provided main function, not instrumented.
+extern "C" int main(int argc, char* argv[]) {
+    // Manual single-input replay/repro mode (also a human/CI crash checker).
+    for (int i = 1; i < argc; ++i) {
+        const std::string a = argv[i];
+        if (a.rfind("--replay-verify=", 0) == 0) {
+            return run_replay_verify_mode(a.substr(std::strlen("--replay-verify=")), argc, argv);
+        }
+        if (a == "-help" || a == "--help") {
+            // create_fuzzing_config() prints usage and exits; reach it via the
+            // engine path without spinning up the supervisor.
+            return run_fuzzing_engine_child(argc, argv, /*arbiter_mode=*/false);
+        }
+    }
+
+    // Opt-out: exact legacy single-process behavior.
+    bool no_arbiter = (std::getenv("TRIOFUZZ_NO_ARBITER") != nullptr);
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "--no-arbiter") no_arbiter = true;
+    }
+    if (no_arbiter) {
+        return run_fuzzing_engine_child(argc, argv, /*arbiter_mode=*/false);
+    }
+
+    return run_supervisor(argc, argv);
 }
