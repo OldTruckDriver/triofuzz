@@ -98,6 +98,17 @@ def build():
     os.environ['FUZZER_LIB'] = '/usr/lib/libtriofuzz.a'
     os.environ.setdefault('LIB_FUZZING_ENGINE', os.environ['FUZZER_LIB'])
 
+    # curl-fuzzer's compile_fuzzer.sh ends with `make check`, which runs the
+    # freshly linked target with corpus files as positional arguments.
+    # libFuzzer and libAFLDriver treat that as replay-and-exit; TrioFuzz's
+    # driver ignores positional arguments and starts a full campaign instead,
+    # so the smoke test never returns and the builder hangs in fuzzer_build.
+    # The check is a self-test only -- dropping it does not change the binary.
+    compile_script = '/src/curl_fuzzer/scripts/compile_fuzzer.sh'
+    if benchmark == 'curl_curl_fuzzer_http' and os.path.exists(compile_script):
+        subprocess.check_call(
+            ['sed', '-i', 's|^make check.*|true|', compile_script])
+
     utils.build_benchmark()
 
 
